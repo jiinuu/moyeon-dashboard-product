@@ -18,7 +18,7 @@ export const DataManagement: React.FC = () => {
 
   const checkKeyStatus = async () => {
     const aistudio = (window as any).aistudio;
-    if (aistudio) {
+    if (aistudio && typeof aistudio.hasSelectedApiKey === 'function') {
       try {
         const selected = await aistudio.hasSelectedApiKey();
         setHasKey(selected);
@@ -27,13 +27,13 @@ export const DataManagement: React.FC = () => {
       }
     } else {
       const envKey = (process as any).env.API_KEY;
-      setHasKey(!!envKey && envKey !== "undefined");
+      setHasKey(!!envKey && envKey !== "undefined" && envKey !== "");
     }
   };
 
   useEffect(() => {
     checkKeyStatus();
-    const interval = setInterval(checkKeyStatus, 3000);
+    const interval = setInterval(checkKeyStatus, 2000);
     return () => clearInterval(interval);
   }, []);
 
@@ -46,6 +46,8 @@ export const DataManagement: React.FC = () => {
       } catch (err) {
         console.error("Failed to open key selection:", err);
       }
+    } else {
+      alert("API 키 설정 대화상자를 열 수 없습니다.");
     }
   };
 

@@ -8,45 +8,46 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
   const [hasKey, setHasKey] = useState<boolean>(true);
-  const [isAistudioAvailable, setIsAistudioAvailable] = useState<boolean>(false);
 
   const checkKeyStatus = async () => {
+    // window.aistudio가 전역에 존재하는지 확인
     const aistudio = (window as any).aistudio;
-    if (aistudio) {
-      setIsAistudioAvailable(true);
+    if (aistudio && typeof aistudio.hasSelectedApiKey === 'function') {
       try {
         const selected = await aistudio.hasSelectedApiKey();
         setHasKey(selected);
       } catch (e) {
-        console.error("API Key check error:", e);
         setHasKey(false);
       }
     } else {
-      // aistudio가 없는 환경에서는 환경 변수 확인
+      // aistudio가 없는 경우 환경 변수 확인 (로컬 개발 환경 대응)
       const envKey = (process as any).env.API_KEY;
-      setHasKey(!!envKey && envKey !== "undefined");
+      setHasKey(!!envKey && envKey !== "undefined" && envKey !== "");
     }
   };
 
   useEffect(() => {
     checkKeyStatus();
-    const interval = setInterval(checkKeyStatus, 3000);
+    // 주기적으로 키 상태를 확인하여 사용자 경험 개선
+    const interval = setInterval(checkKeyStatus, 2000);
     return () => clearInterval(interval);
   }, []);
 
   const handleOpenKey = async (e: React.MouseEvent) => {
     e.preventDefault();
     const aistudio = (window as any).aistudio;
+    
+    // openSelectKey가 존재하는지 엄격히 확인 후 실행
     if (aistudio && typeof aistudio.openSelectKey === 'function') {
       try {
         await aistudio.openSelectKey();
-        // 레이스 컨디션 방지: 성공했다고 가정하고 즉시 상태 업데이트
+        // 규정에 따라 호출 후 즉시 성공한 것으로 간주하고 진행
         setHasKey(true);
       } catch (err) {
-        console.error("Failed to open key selection dialog:", err);
+        console.error("API 키 선택 창을 여는 중 오류 발생:", err);
       }
     } else {
-      console.warn("aistudio.openSelectKey is not available in this context.");
+      alert("이 환경에서는 API 키 선택 기능을 지원하지 않습니다. 관리자에게 문의하세요.");
     }
   };
 
@@ -89,10 +90,10 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
             </button>
           </nav>
 
-          {(!hasKey) && (
+          {!hasKey && (
             <button 
               onClick={handleOpenKey}
-              className="bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-black shadow-lg shadow-amber-200 hover:bg-amber-600 transition-all flex items-center animate-bounce"
+              className="bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-black shadow-lg shadow-amber-200 hover:bg-amber-600 transition-all flex items-center animate-pulse"
             >
               <i className="fa-solid fa-key mr-2"></i>
               API 키 설정
