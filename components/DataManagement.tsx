@@ -12,7 +12,6 @@ export const DataManagement: React.FC = () => {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [targetType, setTargetType] = useState<IngestionType>('residents');
   
-  // AI 분석용 상태
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [lastUploadedData, setLastUploadedData] = useState<any[]>([]);
   const [aiResults, setAiResults] = useState<{ insights: AIInsight[], recommendations: AIRecommendation[] } | null>(null);
@@ -23,16 +22,16 @@ export const DataManagement: React.FC = () => {
 
     try {
       setIsUploading(true);
-      setUploadStatus('데이터 추출 중...');
+      setUploadStatus('Excel 데이터 추출 중...');
 
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const jsonData = XLSX.utils.sheet_to_json(sheet);
 
-      if (jsonData.length === 0) throw new Error("데이터가 비어있습니다.");
+      if (jsonData.length === 0) throw new Error("파일에 데이터가 없습니다.");
 
-      setUploadStatus('AI 전처리 및 DB 적재 중...');
+      setUploadStatus(`DB 적재 시도 (${jsonData.length}건)...`);
 
       const mappedData = jsonData.map((row: any) => ({
         region: row['지역'] || row['region'] || '알 수 없음',
@@ -47,18 +46,24 @@ export const DataManagement: React.FC = () => {
 
       const table = targetType === 'residents' ? 'foreign_residents_stats' : 'local_policies';
       const { error } = await supabase.from(table).insert(mappedData);
-      if (error) throw error;
+      
+      if (error) {
+        if (error.message.includes('row-level security')) {
+          throw new Error("보안 정책(RLS) 에러가 발생했습니다. Supabase SQL Editor에서 이전 가이드에 드린 POLICY 설정 SQL을 먼저 실행해 주세요.");
+        }
+        throw error;
+      }
 
       setLastUploadedData(mappedData);
-      setUploadStatus('데이터 적재 성공! AI 심화 분석을 시작합니다...');
+      setUploadStatus('적재 성공! AI 지능형 분석 엔진을 가동합니다...');
       
-      // AI 분석 시작
       const aiResponse = await analyzeUploadedData(mappedData, targetType);
       setAiResults(aiResponse);
       setShowAnalysis(true);
 
     } catch (err: any) {
-      setUploadStatus(`실패: ${err.message}`);
+      setUploadStatus(`오류 발생: ${err.message}`);
+      console.error(err);
     } finally {
       setIsUploading(false);
       e.target.value = '';
@@ -76,55 +81,71 @@ export const DataManagement: React.FC = () => {
         />
       )}
 
-      <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl">
-        <div className="flex justify-between items-start mb-8">
+      <div className="bg-white p-10 rounded-[2.5rem] border border-slate-200 shadow-2xl">
+        <div className="flex justify-between items-start mb-10">
           <div>
-            <h2 className="text-2xl font-bold text-slate-800 mb-2">데이터 인텔리전스 업로더</h2>
-            <p className="text-slate-500">AI가 데이터를 분석하여 전처리 및 인사이트를 즉시 도출합니다.</p>
+            <h2 className="text-3xl font-black text-slate-800 mb-2">지능형 데이터 허브</h2>
+            <p className="text-slate-500 font-medium">수작업 엑셀 데이터를 AI가 정제하고 분석 리포트를 즉시 생성합니다.</p>
           </div>
-          <div className="flex bg-slate-100 p-1 rounded-xl">
+          <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200 shadow-inner">
             <button 
               onClick={() => setTargetType('residents')}
-              className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${targetType === 'residents' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}
-            >외국인 현황</button>
+              className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all ${targetType === 'residents' ? 'bg-white shadow-md text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+            >현황 업로드</button>
             <button 
               onClick={() => setTargetType('policies')}
-              className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${targetType === 'policies' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}
-            >지자체 정책</button>
+              className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all ${targetType === 'policies' ? 'bg-white shadow-md text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+            >정책 업로드</button>
           </div>
         </div>
 
-        <div className="border-2 border-dashed border-slate-200 rounded-3xl p-12 text-center hover:border-blue-400 hover:bg-blue-50/30 transition-all group">
-          <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
-            <i className="fa-solid fa-cloud-arrow-up text-3xl text-blue-500"></i>
+        <div className="border-4 border-dashed border-slate-100 rounded-[2rem] p-16 text-center hover:border-blue-200 hover:bg-blue-50/20 transition-all group cursor-pointer relative">
+          <div className="w-24 h-24 bg-blue-100/50 rounded-3xl flex items-center justify-center mx-auto mb-8 group-hover:scale-110 group-hover:rotate-3 transition-transform duration-500">
+            <i className="fa-solid fa-file-invoice text-4xl text-blue-600"></i>
           </div>
-          <h3 className="text-xl font-bold text-slate-800 mb-2">분석할 파일을 드래그하세요</h3>
-          <p className="text-slate-500 mb-8 max-w-sm mx-auto">Excel, CSV 파일을 업로드하면 AI가 자동으로 스키마를 매핑하고 분석 방향을 추천합니다.</p>
+          <h3 className="text-2xl font-bold text-slate-800 mb-4">분석할 Excel/CSV 파일을 선택하세요</h3>
+          <p className="text-slate-400 mb-10 max-w-sm mx-auto font-medium">AI가 컬럼을 자동으로 매핑하고 지역별 불일치(Mismatch) 요소를 탐색합니다.</p>
           
-          <label className={`cursor-pointer ${isUploading ? 'opacity-50 pointer-events-none' : ''} bg-slate-900 text-white px-10 py-4 rounded-2xl font-bold shadow-lg hover:shadow-blue-200 transition-all inline-block`}>
-            {isUploading ? '분석 엔진 가동 중...' : '파일 선택 및 AI 분석 시작'}
+          <label className={`relative z-10 cursor-pointer ${isUploading ? 'opacity-50 pointer-events-none' : ''} bg-slate-900 text-white px-12 py-5 rounded-[1.5rem] font-black shadow-2xl hover:bg-blue-600 hover:shadow-blue-200 transition-all inline-block active:scale-95`}>
+            {isUploading ? (
+              <span className="flex items-center">
+                <i className="fa-solid fa-circle-notch fa-spin mr-3"></i> 데이터 엔진 가동 중...
+              </span>
+            ) : '파일 업로드 및 AI 분석 시작'}
             <input type="file" className="hidden" onChange={handleFileUpload} accept=".csv,.xlsx" disabled={isUploading} />
           </label>
         </div>
 
         {uploadStatus && (
-          <div className="mt-8 p-4 bg-blue-50 border border-blue-100 rounded-xl flex items-center text-blue-700 text-sm font-medium animate-pulse">
-            <i className="fa-solid fa-spinner fa-spin mr-3"></i>
-            {uploadStatus}
+          <div className={`mt-10 p-6 rounded-2xl border flex items-center shadow-sm animate-fadeIn ${
+            uploadStatus.includes('오류') ? 'bg-red-50 border-red-100 text-red-700' : 'bg-blue-50 border-blue-100 text-blue-700'
+          }`}>
+            <i className={`fa-solid ${uploadStatus.includes('오류') ? 'fa-triangle-exclamation' : 'fa-info-circle'} mr-4 text-xl`}></i>
+            <p className="font-bold text-sm leading-relaxed">{uploadStatus}</p>
           </div>
         )}
       </div>
 
-      <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-8 rounded-3xl text-white shadow-xl relative overflow-hidden">
-        <div className="relative z-10">
-          <h3 className="text-lg font-bold mb-2">시니어 데이터 엔지니어 Tip</h3>
-          <p className="text-indigo-100 text-sm opacity-90 leading-relaxed">
-            데이터를 적재할 때 raw_data (JSONB) 컬럼에 원본을 보존하는 이유는 추후 AI 모델이 비정형 데이터를 재처리할 때 유연성을 확보하기 위함입니다. 
-            현재 시스템은 업로드 즉시 지능형 초동 분석을 수행합니다.
-          </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-slate-900 p-8 rounded-[2rem] text-white shadow-xl">
+           <h4 className="font-bold mb-4 flex items-center text-blue-400">
+             <i className="fa-solid fa-shield-halved mr-2"></i> RLS 보안 정책 가이드
+           </h4>
+           <p className="text-xs text-slate-400 leading-relaxed">
+             업로드 시 "security policy" 에러가 발생하면, Supabase 대시보드 > SQL Editor에서 
+             <b>ALTER TABLE ... ENABLE ROW LEVEL SECURITY</b> 및 <b>CREATE POLICY ...</b> 구문을 실행해야 합니다. 
+             이는 비인증 사용자의 무분별한 DB 접근을 막기 위한 시니어급 보안 설계입니다.
+           </p>
         </div>
-        <div className="absolute -right-4 -bottom-4 opacity-10 rotate-12">
-          <i className="fa-solid fa-brain text-9xl"></i>
+        <div className="bg-indigo-600 p-8 rounded-[2rem] text-white shadow-xl relative overflow-hidden">
+           <h4 className="font-bold mb-4 flex items-center text-indigo-200">
+             <i className="fa-solid fa-bolt mr-2"></i> AI 전처리 엔진 v2.0
+           </h4>
+           <p className="text-xs text-indigo-100 leading-relaxed">
+             업로드 데이터의 국적, 비자 타입, 예산 항목을 AI가 실시간으로 분류합니다. 
+             전처리가 완료되면 즉시 심화 분석 대시보드가 활성화됩니다.
+           </p>
+           <i className="fa-solid fa-brain absolute -right-6 -bottom-6 text-8xl opacity-10 rotate-12"></i>
         </div>
       </div>
     </div>
