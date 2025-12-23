@@ -1,0 +1,5 @@
+{
+  "name": "Foreigner Policy Mismatch Analyzer",
+  "description": "A high-performance dashboard analyzing the gap between foreign resident demand and local government policy supply in South Korea, featuring a modular ETL pipeline architecture.",
+  "requestFramePermissions": []
+}
