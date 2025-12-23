@@ -132,7 +132,7 @@ export const DataManagement: React.FC = () => {
              <i className="fa-solid fa-shield-halved mr-2"></i> RLS 보안 정책 가이드
            </h4>
            <p className="text-xs text-slate-400 leading-relaxed">
-             업로드 시 "security policy" 에러가 발생하면, Supabase 대시보드 > SQL Editor에서 
+             업로드 시 "security policy" 에러가 발생하면, Supabase 대시보드 &gt; SQL Editor에서 
              <b>ALTER TABLE ... ENABLE ROW LEVEL SECURITY</b> 및 <b>CREATE POLICY ...</b> 구문을 실행해야 합니다. 
              이는 비인증 사용자의 무분별한 DB 접근을 막기 위한 시니어급 보안 설계입니다.
            </p>
