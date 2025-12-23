@@ -16,24 +16,36 @@ export const DataManagement: React.FC = () => {
   const [aiResults, setAiResults] = useState<{ insights: AIInsight[], recommendations: AIRecommendation[] } | null>(null);
   const [currentSchema, setCurrentSchema] = useState<SchemaMapping | null>(null);
 
-  useEffect(() => {
-    const checkKey = async () => {
-      if ((window as any).aistudio) {
-        const selected = await (window as any).aistudio.hasSelectedApiKey();
+  const checkKeyStatus = async () => {
+    const aistudio = (window as any).aistudio;
+    if (aistudio) {
+      try {
+        const selected = await aistudio.hasSelectedApiKey();
         setHasKey(selected);
-      } else {
-        setHasKey(!!(process as any).env.API_KEY);
+      } catch (e) {
+        setHasKey(false);
       }
-    };
-    checkKey();
-    const interval = setInterval(checkKey, 2000);
+    } else {
+      const envKey = (process as any).env.API_KEY;
+      setHasKey(!!envKey && envKey !== "undefined");
+    }
+  };
+
+  useEffect(() => {
+    checkKeyStatus();
+    const interval = setInterval(checkKeyStatus, 3000);
     return () => clearInterval(interval);
   }, []);
 
   const handleOpenKey = async () => {
-    if ((window as any).aistudio) {
-      await (window as any).aistudio.openSelectKey();
-      setHasKey(true);
+    const aistudio = (window as any).aistudio;
+    if (aistudio && typeof aistudio.openSelectKey === 'function') {
+      try {
+        await aistudio.openSelectKey();
+        setHasKey(true);
+      } catch (err) {
+        console.error("Failed to open key selection:", err);
+      }
     }
   };
 
@@ -99,7 +111,9 @@ export const DataManagement: React.FC = () => {
     } catch (err: any) {
       setUploadStatus('처리 중 오류가 발생했습니다.');
       setErrorDetails(err.message || '알 수 없는 오류');
-      if (err.message && err.message.includes('API Key')) setHasKey(false);
+      if (err.message && (err.message.includes('API Key') || err.message.includes('401'))) {
+        setHasKey(false);
+      }
     } finally {
       setIsUploading(false);
       if (e.target) e.target.value = '';
@@ -175,27 +189,6 @@ export const DataManagement: React.FC = () => {
               )}
             </div>
           )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="bg-slate-900 p-8 rounded-[2rem] text-white shadow-xl flex items-start space-x-4">
-          <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center shrink-0">
-            <i className="fa-solid fa-wand-magic-sparkles text-blue-400"></i>
-          </div>
-          <div>
-            <h4 className="font-bold mb-2">지능형 컬럼 매퍼</h4>
-            <p className="text-xs text-slate-400 leading-relaxed">헤더명이 달라도 AI가 의미를 분석하여 시스템 표준 스키마로 자동 변환합니다.</p>
-          </div>
-        </div>
-        <div className="bg-indigo-600 p-8 rounded-[2rem] text-white shadow-xl flex items-start space-x-4">
-          <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center shrink-0">
-            <i className="fa-solid fa-chart-line text-indigo-200"></i>
-          </div>
-          <div>
-            <h4 className="font-bold mb-2">즉각적 전략 도출</h4>
-            <p className="text-xs text-indigo-100 leading-relaxed">데이터 업로드와 동시에 지자체 맞춤형 정책 제언 리포트를 생성하여 인사이트를 제공합니다.</p>
-          </div>
         </div>
       </div>
     </div>

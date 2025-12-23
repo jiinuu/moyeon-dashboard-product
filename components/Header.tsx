@@ -10,33 +10,43 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
   const [hasKey, setHasKey] = useState<boolean>(true);
   const [isAistudioAvailable, setIsAistudioAvailable] = useState<boolean>(false);
 
-  useEffect(() => {
-    const checkKey = async () => {
-      const aistudio = (window as any).aistudio;
-      if (aistudio) {
-        setIsAistudioAvailable(true);
-        try {
-          const selected = await aistudio.hasSelectedApiKey();
-          setHasKey(selected);
-        } catch (e) {
-          setHasKey(false);
-        }
-      } else {
-        // aistudio가 없는 환경(일반 브라우저 등)에서는 process.env.API_KEY가 있다고 가정
-        setHasKey(!!(process as any).env.API_KEY);
+  const checkKeyStatus = async () => {
+    const aistudio = (window as any).aistudio;
+    if (aistudio) {
+      setIsAistudioAvailable(true);
+      try {
+        const selected = await aistudio.hasSelectedApiKey();
+        setHasKey(selected);
+      } catch (e) {
+        console.error("API Key check error:", e);
+        setHasKey(false);
       }
-    };
-    checkKey();
-    
-    // 주기적으로 체크하여 동기화
-    const interval = setInterval(checkKey, 2000);
+    } else {
+      // aistudio가 없는 환경에서는 환경 변수 확인
+      const envKey = (process as any).env.API_KEY;
+      setHasKey(!!envKey && envKey !== "undefined");
+    }
+  };
+
+  useEffect(() => {
+    checkKeyStatus();
+    const interval = setInterval(checkKeyStatus, 3000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleOpenKey = async () => {
-    if ((window as any).aistudio) {
-      await (window as any).aistudio.openSelectKey();
-      setHasKey(true);
+  const handleOpenKey = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    const aistudio = (window as any).aistudio;
+    if (aistudio && typeof aistudio.openSelectKey === 'function') {
+      try {
+        await aistudio.openSelectKey();
+        // 레이스 컨디션 방지: 성공했다고 가정하고 즉시 상태 업데이트
+        setHasKey(true);
+      } catch (err) {
+        console.error("Failed to open key selection dialog:", err);
+      }
+    } else {
+      console.warn("aistudio.openSelectKey is not available in this context.");
     }
   };
 
@@ -79,7 +89,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
             </button>
           </nav>
 
-          {isAistudioAvailable && !hasKey && (
+          {(!hasKey) && (
             <button 
               onClick={handleOpenKey}
               className="bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-black shadow-lg shadow-amber-200 hover:bg-amber-600 transition-all flex items-center animate-bounce"
@@ -89,7 +99,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
             </button>
           )}
           
-          <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-slate-400 hover:text-blue-600 transition-colors">
+          <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-slate-400 hover:text-blue-600 transition-colors" title="Billing Info">
             <i className="fa-solid fa-circle-info text-xl"></i>
           </a>
         </div>
