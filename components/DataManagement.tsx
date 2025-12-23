@@ -17,17 +17,17 @@ export const DataManagement: React.FC = () => {
   const [currentSchema, setCurrentSchema] = useState<SchemaMapping | null>(null);
 
   const checkKeyStatus = async () => {
-    const aistudio = (window as any).aistudio;
-    if (aistudio && typeof aistudio.hasSelectedApiKey === 'function') {
-      try {
+    try {
+      const aistudio = (window as any).aistudio;
+      if (aistudio && typeof aistudio.hasSelectedApiKey === 'function') {
         const selected = await aistudio.hasSelectedApiKey();
         setHasKey(selected);
-      } catch (e) {
-        setHasKey(false);
+        return;
       }
-    } else {
       const envKey = (process as any).env.API_KEY;
       setHasKey(!!envKey && envKey !== "undefined" && envKey !== "");
+    } catch (e) {
+      setHasKey(false);
     }
   };
 
@@ -44,10 +44,14 @@ export const DataManagement: React.FC = () => {
         await aistudio.openSelectKey();
         setHasKey(true);
       } catch (err) {
-        console.error("Failed to open key selection:", err);
+        console.error("API 키 설정 대화상자 열기 실패:", err);
       }
     } else {
-      alert("API 키 설정 대화상자를 열 수 없습니다.");
+      console.error("aistudio.openSelectKey is not available.");
+      const envKey = (process as any).env.API_KEY;
+      if (!envKey || envKey === "undefined") {
+        alert("이 환경에서는 API 키 자동 설정을 지원하지 않습니다. API_KEY를 수동으로 설정해주세요.");
+      }
     }
   };
 
