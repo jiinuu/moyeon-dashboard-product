@@ -1,9 +1,24 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
+/**
+ * 0. API Key 획득 로직
+ * 1순위: localStorage (수동 입력 키)
+ * 2순위: process.env.API_KEY (시스템 제공 키)
+ */
+const getApiKey = (): string | null => {
+  const manualKey = localStorage.getItem('GEMINI_API_KEY');
+  if (manualKey) return manualKey;
+  
+  const envKey = (process as any).env.API_KEY;
+  if (envKey && envKey !== "undefined" && envKey !== "") return envKey;
+  
+  return null;
+};
+
 // 호출 시점에 최신 API Key를 가져오도록 함수형으로 선언
 const getAI = () => {
-  const apiKey = (process as any).env.API_KEY;
+  const apiKey = getApiKey();
   if (!apiKey) {
     throw new Error("API Key가 설정되지 않았습니다. 상단 'API KEY 설정' 버튼을 눌러주세요.");
   }
@@ -39,7 +54,6 @@ export interface DetailedAnalysis {
 
 /**
  * 1. AI 기반 자율 스케마 매핑
- * 어떤 형태의 엑셀이 들어와도 DB 컬럼과 매칭되는 지도를 생성합니다.
  */
 export const identifyDataStructure = async (sampleData: any[]): Promise<SchemaMapping> => {
   const ai = getAI();
@@ -66,7 +80,7 @@ export const identifyDataStructure = async (sampleData: any[]): Promise<SchemaMa
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview", // 더 강력한 추론 모델 사용
+      model: "gemini-3-pro-preview", 
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -153,7 +167,7 @@ export const analyzeUploadedData = async (data: any[], type: string) => {
 };
 
 /**
- * 3. 클릭 시 생성되는 심층 분석 리포트
+ * 3. 심층 분석 리포트
  */
 export const getDeepDiveAnalysis = async (data: any[], recTitle: string, type: string): Promise<DetailedAnalysis | null> => {
   const ai = getAI();
@@ -165,7 +179,6 @@ export const getDeepDiveAnalysis = async (data: any[], recTitle: string, type: s
     데이터 샘플: ${dataSummary}
     
     위 주제에 대해 데이터를 근거로 한 상세 전략 리포트를 작성하세요. 
-    1. 요약 2. 실행 가능한 4가지 전략 제언 3. 잠재적 리스크 요인을 포함해야 합니다.
   `;
 
   try {
