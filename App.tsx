@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
-import { Header } from './components/Header';
-import { AnalysisDashboard } from './components/AnalysisDashboard';
-import { DataManagement } from './components/DataManagement';
+import { Header } from './components/Header.tsx';
+import { AnalysisDashboard } from './components/AnalysisDashboard.tsx';
+import { DataManagement } from './components/DataManagement.tsx';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'ingestion'>('dashboard');

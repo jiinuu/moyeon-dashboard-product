@@ -5,23 +5,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>외국인 정책 미스매치 분석 시스템</title>
-    <!-- Tailwind Play CDN: JIT 엔진을 브라우저에서 실행합니다. -->
-    <!-- 참고: 프로덕션 배포 시에는 빌드 타임에 CSS를 생성하는 것이 성능상 유리합니다. -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-      // Tailwind 설정을 전역 객체로 정의하여 JIT 엔진에 명시적 가이드를 제공합니다.
       tailwind.config = {
         theme: {
           extend: {
-            colors: {
-              brand: {
-                blue: '#3b82f6',
-                indigo: '#4f46e5',
-              }
-            },
-            animation: {
-              fadeIn: 'fadeIn 0.5s ease-out forwards',
-            },
+            colors: { brand: { blue: '#3b82f6', indigo: '#4f46e5' } },
+            animation: { fadeIn: 'fadeIn 0.5s ease-out forwards' },
             keyframes: {
               fadeIn: {
                 '0%': { opacity: '0', transform: 'translateY(10px)' },
@@ -33,32 +23,36 @@
       }
     </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- JIT 엔진이 처리할 커스텀 스타일 정의 -->
     <style type="text/tailwindcss">
       @layer base {
-        body {
-          @apply bg-slate-50 text-slate-900;
-        }
-      }
-      @layer components {
-        .animate-fadeIn {
-          animation: fadeIn 0.5s ease-out forwards;
-        }
+        body { @apply bg-slate-50 text-slate-900 antialiased; }
       }
     </style>
-<script type="importmap">
+    <script type="importmap">
 {
   "imports": {
     "react": "https://esm.sh/react@^18.2.0",
-    "react-dom/": "https://esm.sh/react-dom@^18.2.0/",
-    "react/": "https://esm.sh/react@^18.2.0/",
+    "react-dom": "https://esm.sh/react-dom@^18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@^18.2.0/client",
     "recharts": "https://esm.sh/recharts@^2.12.0",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7"
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/"
   }
 }
 </script>
+    <!-- 메인 엔트리 포인트: 이 줄이 없으면 앱이 시작되지 않습니다. -->
+    <script type="module" src="./index.tsx"></script>
 </head>
 <body>
-    <div id="root"></div>
+    <div id="root">
+        <!-- 로딩 중 표시 (JS가 로드되기 전 사용자에게 보임) -->
+        <div class="flex items-center justify-center min-h-screen bg-slate-50">
+            <div class="text-center">
+                <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mb-4"></div>
+                <p className="text-slate-500 font-medium">시스템 엔진 시동 중...</p>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
