@@ -18,12 +18,22 @@ export const DataManagement: React.FC = () => {
 
   const checkKeyStatus = async () => {
     try {
+      // 1. 수동 입력 키 우선 확인 (Header와 동기화)
+      const manualKey = localStorage.getItem('GEMINI_API_KEY');
+      if (manualKey && manualKey.length > 20) {
+        setHasKey(true);
+        return;
+      }
+
+      // 2. window.aistudio 객체 확인
       const aistudio = (window as any).aistudio;
       if (aistudio && typeof aistudio.hasSelectedApiKey === 'function') {
         const selected = await aistudio.hasSelectedApiKey();
         setHasKey(selected);
         return;
       }
+
+      // 3. 환경 변수 확인
       const envKey = (process as any).env.API_KEY;
       setHasKey(!!envKey && envKey !== "undefined" && envKey !== "");
     } catch (e) {
@@ -33,25 +43,24 @@ export const DataManagement: React.FC = () => {
 
   useEffect(() => {
     checkKeyStatus();
-    const interval = setInterval(checkKeyStatus, 2000);
+    // 1초마다 체크하여 Header에서 키가 입력되는 순간 즉시 반영
+    const interval = setInterval(checkKeyStatus, 1000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleOpenKey = async () => {
+  const handleOpenKeyFromCenter = async () => {
     const aistudio = (window as any).aistudio;
     if (aistudio && typeof aistudio.openSelectKey === 'function') {
       try {
         await aistudio.openSelectKey();
         setHasKey(true);
       } catch (err) {
-        console.error("API 키 설정 대화상자 열기 실패:", err);
+        // 자동 설정 실패 시 Header의 로직이 동작하도록 유도하거나 수동 입력을 안내
+        alert("상단 'API 키 설정' 버튼을 통해 수동으로 입력해주세요.");
       }
     } else {
-      console.error("aistudio.openSelectKey is not available.");
-      const envKey = (process as any).env.API_KEY;
-      if (!envKey || envKey === "undefined") {
-        alert("이 환경에서는 API 키 자동 설정을 지원하지 않습니다. API_KEY를 수동으로 설정해주세요.");
-      }
+      // 수동 입력 창은 Header가 관리하므로, 사용자에게 상단 버튼 클릭 유도
+      alert("상단 우측의 'API 키 설정' 버튼을 클릭하여 수동으로 키를 입력해주세요.");
     }
   };
 
@@ -152,9 +161,9 @@ export const DataManagement: React.FC = () => {
                 <i className="fa-solid fa-key text-4xl text-blue-600"></i>
               </div>
               <h3 className="text-2xl font-black text-slate-800 mb-4">분석을 위해 AI 키가 필요합니다</h3>
-              <p className="text-slate-500 mb-10 max-w-sm mx-auto font-medium">분석 엔진을 가동하려면 Google Gemini API 키를 선택해야 합니다.</p>
+              <p className="text-slate-500 mb-10 max-w-sm mx-auto font-medium">분석 엔진을 가동하려면 Google Gemini API 키를 설정해야 합니다.</p>
               <button 
-                onClick={handleOpenKey}
+                onClick={handleOpenKeyFromCenter}
                 className="bg-blue-600 text-white px-10 py-5 rounded-2xl font-black shadow-xl hover:bg-blue-700 hover:-translate-y-1 transition-all active:scale-95"
               >
                 API 키 설정하기
