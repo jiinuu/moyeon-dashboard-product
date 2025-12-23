@@ -8,23 +8,35 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
   const [hasKey, setHasKey] = useState<boolean>(true);
+  const [isAistudioAvailable, setIsAistudioAvailable] = useState<boolean>(false);
 
   useEffect(() => {
     const checkKey = async () => {
-      if ((window as any).aistudio) {
-        const selected = await (window as any).aistudio.hasSelectedApiKey();
-        setHasKey(selected);
+      const aistudio = (window as any).aistudio;
+      if (aistudio) {
+        setIsAistudioAvailable(true);
+        try {
+          const selected = await aistudio.hasSelectedApiKey();
+          setHasKey(selected);
+        } catch (e) {
+          setHasKey(false);
+        }
+      } else {
+        // aistudio가 없는 환경(일반 브라우저 등)에서는 process.env.API_KEY가 있다고 가정
+        setHasKey(!!(process as any).env.API_KEY);
       }
     };
     checkKey();
+    
+    // 주기적으로 체크하여 동기화
+    const interval = setInterval(checkKey, 2000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleOpenKey = async () => {
     if ((window as any).aistudio) {
       await (window as any).aistudio.openSelectKey();
       setHasKey(true);
-      // 키 선택 후 페이지를 새로고침하거나 상태를 업데이트하여 process.env.API_KEY가 반영되도록 함
-      setTimeout(() => window.location.reload(), 500);
     }
   };
 
@@ -35,7 +47,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
           <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-2.5 rounded-2xl shadow-lg shadow-blue-200">
             <i className="fa-solid fa-brain text-white text-2xl"></i>
           </div>
-          <div>
+          <div className="hidden sm:block">
             <h1 className="text-xl font-black text-slate-800 leading-tight">
               AI 정책 매칭 엔진
             </h1>
@@ -43,42 +55,42 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
           </div>
         </div>
         
-        <div className="flex items-center space-x-6">
+        <div className="flex items-center space-x-3 sm:space-x-4">
           <nav className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
             <button
               onClick={() => setActiveTab('dashboard')}
-              className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${
+              className={`px-3 sm:px-6 py-2 rounded-xl text-sm font-bold transition-all ${
                 activeTab === 'dashboard' 
                   ? 'bg-white text-blue-600 shadow-sm' 
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >
-              분석 대시보드
+              대시보드
             </button>
             <button
               onClick={() => setActiveTab('ingestion')}
-              className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${
+              className={`px-3 sm:px-6 py-2 rounded-xl text-sm font-bold transition-all ${
                 activeTab === 'ingestion' 
                   ? 'bg-white text-blue-600 shadow-sm' 
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >
-              데이터 자율 수집
+              데이터 수집
             </button>
           </nav>
 
-          {!hasKey && (
+          {isAistudioAvailable && !hasKey && (
             <button 
               onClick={handleOpenKey}
-              className="bg-amber-100 text-amber-700 px-4 py-2 rounded-xl text-xs font-black border border-amber-200 hover:bg-amber-200 transition-all flex items-center"
+              className="bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-black shadow-lg shadow-amber-200 hover:bg-amber-600 transition-all flex items-center animate-bounce"
             >
               <i className="fa-solid fa-key mr-2"></i>
-              API KEY 설정 필요
+              API 키 설정
             </button>
           )}
           
           <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-slate-400 hover:text-blue-600 transition-colors">
-            <i className="fa-solid fa-circle-question text-xl"></i>
+            <i className="fa-solid fa-circle-info text-xl"></i>
           </a>
         </div>
       </div>
