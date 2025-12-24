@@ -14,8 +14,7 @@ export const AnalysisDashboard: React.FC = () => {
     async function fetchData() {
       try {
         setLoading(true);
-        console.log("Supabase 요청 시작...");
-
+        
         const { data: residents, error: resError } = await supabase
           .from('foreign_residents_stats')
           .select('*');
@@ -35,15 +34,17 @@ export const AnalysisDashboard: React.FC = () => {
         const aggregated: Record<string, any> = {};
 
         residents.forEach((curr: any) => {
-          const region = curr.region || '미분류';
+          // 객체 렌더링 에러 방지를 위해 강제 문자열 변환
+          const region = curr.region ? String(curr.region) : '미분류';
           if (!aggregated[region]) aggregated[region] = { region, residents: 0, budget: 0 };
           aggregated[region].residents += (Number(curr.resident_count) || 0);
         });
 
         if (policies) {
           policies.forEach((p: any) => {
-            if (aggregated[p.region]) {
-              aggregated[p.region].budget += (Number(p.budget) || 0) / 1000000;
+            const region = p.region ? String(p.region) : '미분류';
+            if (aggregated[region]) {
+              aggregated[region].budget += (Number(p.budget) || 0) / 1000000;
             }
           });
         }
@@ -81,7 +82,7 @@ export const AnalysisDashboard: React.FC = () => {
     <div className="p-20 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
       <i className="fa-solid fa-database text-slate-300 text-4xl mb-4"></i>
       <h3 className="text-2xl font-bold text-slate-800 mb-2">데이터가 없습니다</h3>
-      <p className="text-slate-500">SQL Editor에서 더미 데이터를 먼저 삽입해 주세요.</p>
+      <p className="text-slate-500">데이터 수집 메뉴에서 파일을 업로드하여 데이터를 생성해주세요.</p>
     </div>
   );
 
@@ -95,13 +96,13 @@ export const AnalysisDashboard: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <p className="text-slate-500 text-sm mb-1">총 외국인</p>
           <h4 className="text-3xl font-black text-indigo-600">
-            {data.reduce((acc, cur) => acc + cur.residents, 0).toLocaleString()}명
+            {data.reduce((acc, cur) => acc + (cur.residents || 0), 0).toLocaleString()}명
           </h4>
         </div>
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <p className="text-slate-500 text-sm mb-1">총 예산 (백만)</p>
           <h4 className="text-3xl font-black text-pink-600">
-            {data.reduce((acc, cur) => acc + cur.budget, 0).toLocaleString()}
+            {data.reduce((acc, cur) => acc + (cur.budget || 0), 0).toLocaleString()}
           </h4>
         </div>
       </div>

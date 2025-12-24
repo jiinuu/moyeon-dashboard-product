@@ -24,7 +24,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
       const aistudio = (window as any).aistudio;
       if (aistudio && typeof aistudio.hasSelectedApiKey === 'function') {
         const selected = await aistudio.hasSelectedApiKey();
-        setHasKey(selected);
+        setHasKey(!!selected);
         return;
       }
       
@@ -128,7 +128,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
                 <i className="fa-solid fa-key mr-2"></i>
                 API 키 설정
               </button>
-            ) : localStorage.getItem('GEMINI_API_KEY') && (
+            ) : (!!localStorage.getItem('GEMINI_API_KEY')) && (
               <button 
                 onClick={clearKey}
                 className="text-slate-400 hover:text-red-500 text-xs font-bold transition-colors"
