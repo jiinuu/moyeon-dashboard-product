@@ -149,8 +149,8 @@ export const PostUploadAnalysis: React.FC<Props> = ({ data, type, aiResults, onC
               {isAnalyzing ? (
                 <div className="flex flex-col items-center py-10">
                   <div className="w-14 h-14 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mb-6"></div>
-                  <p className="text-xl font-black text-white">시니어 분석 엔진 가동 중...</p>
-                  <p className="text-slate-400 text-sm mt-2">복합적인 데이터 상관관계를 분석하고 있습니다.</p>
+                  <p className="text-xl font-black text-white">분석 엔진 가동 중...</p>
+                  <p className="text-slate-400 text-sm mt-2">복합적인 데이터를 분석하고 있습니다.</p>
                 </div>
               ) : errorMessage ? (
                 <div className="text-center py-10">

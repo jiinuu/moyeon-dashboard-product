@@ -52,13 +52,41 @@ export const identifyDataStructure = async (sampleData: any[]): Promise<SchemaMa
   const sample = JSON.stringify(sampleData.slice(0, 5));
   
   const prompt = `
-    당신은 10년차 시니어 데이터 엔지니어입니다. 다음 엑셀 샘플 데이터를 분석하여 시스템 DB 스키마에 최적화된 매핑을 수행하세요.
-    데이터 샘플: ${sample}
-    
-    1. 대상 테이블 판단: 'residents'(인구수/국적 관련) 또는 'policies'(지자체 사업/예산 관련)
-    2. 매핑 리스트 작성: 원본 컬럼명(source)과 DB 필드명(target)을 짝지으세요.
-       - 필드명 가이드: 'region', 'resident_count', 'budget', 'title', 'nationality', 'visa_type'
-  `;
+  당신은 모든 도메인의 데이터를 다루는 '데이터 표준화 전문가'입니다.
+  입력된 Raw Data 샘플을 분석하여, 데이터베이스 적재 및 시각화를 위한 **최적의 표준화 명세서(Standardization Spec)**를 작성하세요.
+
+  ## 입력 데이터 샘플:
+  ${sample}
+
+  ## 수행 과제:
+  1. **데이터 요약(Context):** 이 데이터가 무엇에 관한 것인지 한 문장으로 정의하세요.
+  2. **컬럼 분석(Column Analysis):** 각 컬럼의 의미를 파악하여 다음을 수행하세요.
+     - **suggested_name:** 해당 컬럼을 DB에 저장할 때 가장 적합한 **표준 영어 변수명(snake_case)**을 제안하세요. (예: '시도명' -> 'region_name', '총 예산(원)' -> 'total_budget')
+     - **semantic_role:** 컬럼의 역할을 분류하세요 (DIMENSION, METRIC, DATE, ID, UNKNOWN).
+     - **cleaning_strategy:** 데이터를 깨끗하게 만들기 위한 규칙을 지정하세요.
+
+  ## 전처리 전략 (cleaning_strategy) 가이드:
+  - "NUMERIC_ONLY": 숫자와 소수점만 남기고 나머지(통화기호, 콤마, 단위) 제거. (예: "1,000원" -> 1000)
+  - "DATE_FORMAT": 날짜 형식 통일 (YYYY-MM-DD). "2023.05" 처럼 월까지만 있어도 "2023-05-01" 형태로 변환 필요.
+  - "KOREAN_REGION_STD": 한국 행정구역 명칭 표준화 (예: "전북" -> "전북특별자치도", "서울" -> "서울특별시").
+  - "TEXT_CLEAN": 앞뒤 공백 제거 및 특수문자 제거.
+  - "KEEP": 변경 없음.
+
+  ## 출력 포맷 (JSON Only):
+  {
+    "dataset_summary": "이 데이터는 2024년도 지자체별 외국인 지원 예산 현황입니다.",
+    "columns": [
+      {
+        "source_header": "원본 컬럼명",
+        "suggested_name": "db_column_name",
+        "label_kr": "한글 라벨명(시각화용)",
+        "semantic_role": "METRIC", 
+        "data_type": "INTEGER",
+        "cleaning_strategy": "NUMERIC_ONLY"
+      }
+    ]
+  }
+`;
 
   try {
     const response = await ai.models.generateContent({
