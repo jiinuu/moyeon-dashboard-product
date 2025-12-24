@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase.ts';
 import * as XLSX from 'xlsx';
-import { identifyAndCleanSchema, analyzeUploadedData, AIInsight, AIRecommendation, SchemaMapping } from '../lib/aiService.ts';
+import { identifyAndCreateDynamicSchema, analyzeUploadedData, AIInsight, AIRecommendation, SchemaMapping } from '../lib/aiService.ts';
 import { PostUploadAnalysis } from './PostUploadAnalysis.tsx';
 
 export const DataManagement: React.FC = () => {
@@ -52,7 +52,7 @@ export const DataManagement: React.FC = () => {
     setErrorDetails(null);
     try {
       setIsUploading(true);
-      setUploadStatus('AI 데이터 분석 엔진 가동 중...');
+      setUploadStatus('AI 분석 엔진이 원본 데이터 구조를 스캔 중...');
 
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer);
@@ -61,59 +61,60 @@ export const DataManagement: React.FC = () => {
 
       if (rawJson.length === 0) throw new Error("파일에 데이터가 없습니다.");
 
-      // 1. AI 스키마 분석
-      setUploadStatus('데이터 레이크 매핑 규칙 생성 중...');
-      const schema = await identifyAndCleanSchema(rawJson);
+      // 1. AI에게 새로운 물리 테이블 설계 요청
+      const schema = await identifyAndCreateDynamicSchema(rawJson);
+      
+      // 테이블 이름 중복 방지를 위해 타임스탬프 추가
+      const finalTableName = `${schema.tableName}_${Date.now().toString().slice(-6)}`;
+      schema.tableName = finalTableName;
       setCurrentSchema(schema);
       
-      // 2. 테이블별 물리 스키마 정의 (에러 방지의 핵심)
-      const RESIDENTS_COLUMNS = ['region', 'resident_count', 'nationality', 'visa_type'];
-      const POLICIES_COLUMNS = ['region', 'title', 'category', 'budget'];
+      // 2. 물리 테이블 생성 (RPC 브릿지 사용)
+      setUploadStatus(`데이터베이스에 신규 테이블 [${finalTableName}] 생성 중...`);
+      const createTableSql = `CREATE TABLE IF NOT EXISTS public."${finalTableName}" (${schema.sqlColumns});`;
       
-      const targetTable = schema.dataType === 'policies' ? 'local_policies' : 'foreign_residents_stats';
-      const allowedColumns = schema.dataType === 'policies' ? POLICIES_COLUMNS : RESIDENTS_COLUMNS;
+      const { error: rpcError } = await supabase.rpc('exec_sql', { sql_query: createTableSql });
+      
+      if (rpcError) {
+        console.error("RPC Error:", rpcError);
+        throw new Error(`테이블 생성 실패: ${rpcError.message}. (Supabase SQL Editor에서 exec_sql 함수를 먼저 생성해야 합니다.)`);
+      }
 
-      setUploadStatus(`데이터 정규화 파이프라인 가동: ${schema.datasetName}`);
+      // 3. 데이터 정제 및 적재
+      setUploadStatus(`신규 테이블에 데이터 이관 중... (${rawJson.length} 건)`);
       
       const processedData = rawJson.map((row: any) => {
         const cleanedRow: any = {};
-
         schema.mappings.forEach(m => {
-          // 중요: 현재 대상 테이블에 존재하는 컬럼인 경우에만 세팅
-          if (allowedColumns.includes(m.target)) {
-            const rawVal = row[m.source];
-            if (m.type === 'number') {
-              cleanedRow[m.target] = cleanNumericValue(rawVal);
-            } else {
-              cleanedRow[m.target] = rawVal ? String(rawVal) : '';
-            }
+          const rawVal = row[m.source];
+          if (m.type === 'number') {
+            cleanedRow[m.target] = cleanNumericValue(rawVal);
+          } else {
+            cleanedRow[m.target] = rawVal ? String(rawVal) : '';
           }
         });
-
-        // 필수 필드 보정
-        if (!cleanedRow.region) cleanedRow.region = '미분류';
-        
         return cleanedRow;
       });
 
-      // 3. 적재
-      setUploadStatus(`정제된 데이터를 [${targetTable}]에 적재 중...`);
+      // 4. 새 테이블에 데이터 Insert
+      // 새로 만든 테이블은 schema cache에 없으므로, 잠시 대기 후 시도
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
-      const { error } = await supabase.from(targetTable).insert(processedData);
-      if (error) {
-        console.error("DB Insert Error:", error);
-        throw new Error(`데이터베이스 적재 실패: ${error.message}`);
+      const { error: insertError } = await supabase.from(finalTableName).insert(processedData);
+      
+      if (insertError) {
+        throw new Error(`데이터 적재 실패: ${insertError.message}`);
       }
 
       setLastUploadedData(processedData);
-      setUploadStatus('대시보드 인사이트 생성 중...');
+      setUploadStatus('동적 대시보드 인사이트 생성 중...');
       
       const aiResponse = await analyzeUploadedData(processedData, schema);
       setAiResults(aiResponse);
       setShowAnalysis(true);
 
     } catch (err: any) {
-      setUploadStatus('파이프라인 처리 오류');
+      setUploadStatus('동적 파이프라인 중단');
       setErrorDetails(err.message);
     } finally {
       setIsUploading(false);
@@ -134,13 +135,13 @@ export const DataManagement: React.FC = () => {
 
       {!showAnalysis && (
         <div className="bg-white p-12 rounded-[3.5rem] border border-slate-200 shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600"></div>
+          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-emerald-500 via-blue-600 to-indigo-600"></div>
           
           <div className="relative z-10 text-center">
             <div className="mb-12">
-              <span className="bg-blue-50 text-blue-600 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest mb-4 inline-block">AI-Driven ETL Pipeline</span>
-              <h2 className="text-4xl font-black text-slate-800 mb-4 tracking-tight">자율형 데이터 사이언스 수집기</h2>
-              <p className="text-slate-500 font-bold text-lg">AI가 원본을 스캔하여 대상 테이블 스키마에 맞게 자동 정규화합니다.</p>
+              <span className="bg-emerald-50 text-emerald-600 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest mb-4 inline-block">Dynamic DDL Pipeline</span>
+              <h2 className="text-4xl font-black text-slate-800 mb-4 tracking-tight">AI 자율 스키마 생성기</h2>
+              <p className="text-slate-500 font-bold text-lg">파일을 올리면 AI가 즉석에서 최적의 '물리 테이블'을 구축하고 적재합니다.</p>
             </div>
 
             {!hasKey ? (
@@ -149,27 +150,32 @@ export const DataManagement: React.FC = () => {
                 <h3 className="text-xl font-black text-slate-800 mb-4">API 키가 필요합니다</h3>
               </div>
             ) : (
-              <div className="border-4 border-dashed border-slate-100 rounded-[3rem] p-20 text-center hover:border-blue-400 hover:bg-blue-50/10 transition-all cursor-pointer relative mb-10 group/box">
-                <div className="w-24 h-24 bg-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-xl group-hover/box:scale-105 transition-transform">
-                  <i className="fa-solid fa-cloud-arrow-up text-4xl text-white"></i>
+              <div className="border-4 border-dashed border-slate-100 rounded-[3rem] p-20 text-center hover:border-emerald-400 hover:bg-emerald-50/10 transition-all cursor-pointer relative mb-10 group/box">
+                <div className="w-24 h-24 bg-emerald-600 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-xl group-hover/box:scale-105 transition-transform">
+                  <i className="fa-solid fa-database text-4xl text-white"></i>
                 </div>
-                <h3 className="text-2xl font-black text-slate-800 mb-4">데이터 파일을 업로드하세요</h3>
-                <p className="text-slate-400 mb-12 max-w-sm mx-auto font-bold text-sm">업로드된 데이터는 AI 정제 파이프라인을 거쳐 실제 DB 구조에 최적화되어 적재됩니다.</p>
+                <h3 className="text-2xl font-black text-slate-800 mb-4">분석할 파일을 선택하세요</h3>
+                <p className="text-slate-400 mb-12 max-w-sm mx-auto font-bold text-sm">기존 테이블을 재사용하지 않고, 업로드 시마다 새로운 스키마의 전용 테이블이 생성됩니다.</p>
                 
-                <label className={`relative z-10 cursor-pointer ${isUploading ? 'opacity-50 pointer-events-none' : ''} bg-slate-900 text-white px-16 py-6 rounded-2xl font-black shadow-2xl hover:bg-blue-700 transition-all inline-block`}>
-                  {isUploading ? '데이터 정제 및 적재 중...' : '파일 선택 및 분석 시작'}
+                <label className={`relative z-10 cursor-pointer ${isUploading ? 'opacity-50 pointer-events-none' : ''} bg-slate-900 text-white px-16 py-6 rounded-2xl font-black shadow-2xl hover:bg-emerald-700 transition-all inline-block`}>
+                  {isUploading ? '시스템이 테이블 구축 중...' : '신규 테이블 생성 및 데이터 적재'}
                   <input type="file" className="hidden" onChange={handleFileUpload} accept=".csv,.xlsx" disabled={isUploading} />
                 </label>
               </div>
             )}
 
             {uploadStatus && (
-              <div className={`p-8 rounded-[2rem] border animate-fadeIn mt-6 ${errorDetails ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
-                <p className={`font-black text-lg ${errorDetails ? 'text-red-700' : 'text-blue-700'}`}>{uploadStatus}</p>
+              <div className={`p-8 rounded-[2rem] border animate-fadeIn mt-6 ${errorDetails ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                <p className={`font-black text-lg ${errorDetails ? 'text-red-700' : 'text-emerald-700'}`}>{uploadStatus}</p>
                 {errorDetails && (
                   <div className="mt-4 p-4 bg-white/50 rounded-xl text-left border border-red-100">
                     <p className="text-xs text-red-600 font-mono leading-relaxed">{errorDetails}</p>
-                    <p className="text-[10px] text-red-400 mt-2 font-bold underline italic">에러 해결됨: 대상 테이블에 존재하지 않는 컬럼은 자동으로 필터링되도록 보정되었습니다.</p>
+                    <div className="mt-4 p-4 bg-slate-900 rounded-xl">
+                      <p className="text-[10px] text-emerald-400 font-bold mb-2">💡 해결 가이드</p>
+                      <p className="text-[10px] text-white/70 leading-relaxed">
+                        Supabase SQL Editor에서 반드시 `exec_sql` 함수를 생성해야 웹 앱이 테이블을 직접 만들 수 있습니다. 위 설명의 SQL 코드를 복사해서 실행해 주세요.
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
