@@ -19,10 +19,14 @@ const getAI = () => {
 
 export interface SchemaMapping {
   datasetName: string;
-  targetTable: string;
-  mappings: { source: string; target: string; type: 'string' | 'number' | 'date' }[];
-  xAxisKey: string;
-  yAxisKey: string;
+  dataType: 'residents' | 'policies' | 'general';
+  // 물리 DB 컬럼에 맞춘 표준 매핑
+  mappings: { 
+    source: string; 
+    target: 'region' | 'resident_count' | 'budget' | 'title' | 'category' | 'nationality' | 'visa_type'; 
+    type: 'string' | 'number'
+  }[];
+  xAxisLabel: string;
   yAxisLabel: string;
   unit: string;
 }
@@ -48,22 +52,30 @@ export interface DetailedAnalysis {
 }
 
 /**
- * 1. AI 기반 자율 데이터 전처리 및 가상 스키마 정의
+ * AI 기반 자율 데이터 정규화 및 가상 스키마 정의
  */
 export const identifyAndCleanSchema = async (sampleData: any[]): Promise<SchemaMapping> => {
   const ai = getAI();
   const sample = JSON.stringify(sampleData.slice(0, 10));
   
   const prompt = `
-    당신은 10년차 시니어 데이터 사이언티스트입니다. 
-    다음 엑셀 데이터를 분석하여 시각화 대시보드 구축을 위한 최적의 '전처리 스나이퍼' 및 '가상 스키마'를 정의하세요.
+    당신은 10년차 시니어 데이터 엔지니어입니다. 
+    다음 엑셀 데이터를 분석하여 시스템 DB의 표준 필드로 정규화(Normalization) 하세요.
     
     데이터 샘플: ${sample}
     
+    [중요] 반드시 다음 허용된 target 필드 중 하나로만 매핑하세요:
+    - 'region': 지역명, 국가명, 장소 등 (X축 후보)
+    - 'resident_count': 인원수, 수량, 횟수 등 (수치)
+    - 'budget': 금액, 예산, 비용 등 (수치)
+    - 'title': 제목, 사업명, 항목명 등
+    - 'category': 분류, 유형 등
+    - 'nationality': 국적
+    - 'visa_type': 비자유형
+    
     요구사항:
     1. 이 데이터셋의 성격을 가장 잘 나타내는 datasetName을 정하세요.
-    2. 시각화 시 X축(주로 지역, 연도, 국적 등 라벨링)과 Y축(주로 인원수, 금액, 비율 등 수치)으로 쓸 가장 적합한 컬럼을 선정하세요.
-    3. 모든 수치형 데이터는 전처리 과정에서 순수 숫자로 변환될 수 있도록 type을 명시하세요.
+    2. 시각화 시 X축과 Y축으로 쓸 가장 적합한 라벨(xAxisLabel, yAxisLabel)을 정하세요.
   `;
 
   try {
@@ -76,25 +88,24 @@ export const identifyAndCleanSchema = async (sampleData: any[]): Promise<SchemaM
           type: Type.OBJECT,
           properties: {
             datasetName: { type: Type.STRING },
-            targetTable: { type: Type.STRING, description: "통계 분류 (예: resident_stats, policy_budget, etc)" },
+            dataType: { type: Type.STRING, enum: ['residents', 'policies', 'general'] },
             mappings: { 
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 properties: {
                   source: { type: Type.STRING },
-                  target: { type: Type.STRING },
-                  type: { type: Type.STRING, enum: ['string', 'number', 'date'] }
+                  target: { type: Type.STRING, enum: ['region', 'resident_count', 'budget', 'title', 'category', 'nationality', 'visa_type'] },
+                  type: { type: Type.STRING, enum: ['string', 'number'] }
                 },
                 required: ["source", "target", "type"]
               }
             },
-            xAxisKey: { type: Type.STRING, description: "시각화 시 라벨로 쓸 필드명" },
-            yAxisKey: { type: Type.STRING, description: "시각화 시 값으로 쓸 필드명" },
+            xAxisLabel: { type: Type.STRING },
             yAxisLabel: { type: Type.STRING },
             unit: { type: Type.STRING }
           },
-          required: ["datasetName", "targetTable", "mappings", "xAxisKey", "yAxisKey", "yAxisLabel", "unit"]
+          required: ["datasetName", "dataType", "mappings", "xAxisLabel", "yAxisLabel", "unit"]
         }
       }
     });
@@ -104,19 +115,14 @@ export const identifyAndCleanSchema = async (sampleData: any[]): Promise<SchemaM
   }
 };
 
-/**
- * 2. 업로드 데이터 기반 인사이트 생성 (동적 스키마 대응)
- */
 export const analyzeUploadedData = async (data: any[], schema: SchemaMapping) => {
   const ai = getAI();
   const dataSummary = data.slice(0, 20).map(d => JSON.stringify(d)).join("\n");
   
   const prompt = `
-    데이터셋 명칭: ${schema.datasetName}
-    데이터 요약 (X축: ${schema.xAxisKey}, Y축: ${schema.yAxisKey}):
-    ${dataSummary}
-    
-    위 데이터를 바탕으로 시니어 분석가의 관점에서 3가지 핵심 인사이트와 심층 분석이 필요한 3가지 시나리오를 제안하세요.
+    데이터셋: ${schema.datasetName}
+    데이터 요약: ${dataSummary}
+    시니어 분석가로서 3가지 핵심 인사이트와 3가지 심층 시나리오를 제안하세요.
   `;
 
   try {
@@ -169,13 +175,7 @@ export const getDeepDiveAnalysis = async (data: any[], recTitle: string, schema:
   const ai = getAI();
   const dataSummary = data.slice(0, 15).map(d => JSON.stringify(d)).join("\n");
 
-  const prompt = `
-    주제: "${recTitle}"
-    데이터셋: ${schema.datasetName}
-    데이터 샘플: ${dataSummary}
-    
-    데이터 사이언티스트로서 전문적인 전략 리포트를 작성하세요.
-  `;
+  const prompt = `분석 주제: "${recTitle}"\n데이터셋: ${schema.datasetName}\n샘플: ${dataSummary}\n전문적인 전략 리포트를 작성하세요.`;
 
   try {
     const response = await ai.models.generateContent({

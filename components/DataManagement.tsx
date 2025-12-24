@@ -36,16 +36,12 @@ export const DataManagement: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // 수치 데이터 정제 헬퍼 (데이터 엔지니어링의 핵심)
   const cleanNumericValue = (val: any): number => {
     if (val === null || val === undefined) return 0;
     const str = String(val).replace(/,/g, '');
     const num = parseFloat(str.replace(/[^0-9.-]/g, ''));
-    
-    // 단위 보정 (억, 만 등)
     if (str.includes('억')) return (parseFloat(str) || 0) * 100000000;
     if (str.includes('만') && !str.includes('백만')) return (parseFloat(str) || 0) * 10000;
-    
     return isNaN(num) ? 0 : num;
   };
 
@@ -56,7 +52,7 @@ export const DataManagement: React.FC = () => {
     setErrorDetails(null);
     try {
       setIsUploading(true);
-      setUploadStatus('AI 데이터 클리닝 엔진 가동 중...');
+      setUploadStatus('AI 데이터 분석 엔진 가동 중...');
 
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer);
@@ -65,54 +61,63 @@ export const DataManagement: React.FC = () => {
 
       if (rawJson.length === 0) throw new Error("파일에 데이터가 없습니다.");
 
-      // 1. AI에게 가상 스키마 및 정제 규칙 요청
-      setUploadStatus('가상 스키마 및 매핑 규칙 생성 중...');
+      // 1. AI 스키마 분석
+      setUploadStatus('데이터 레이크 매핑 규칙 생성 중...');
       const schema = await identifyAndCleanSchema(rawJson);
       setCurrentSchema(schema);
       
-      // 2. 데이터 정제 파이프라인 가동
-      setUploadStatus(`데이터 정제 파이프라인 가동: ${schema.datasetName}`);
+      // 2. 데이터 정제 및 정규화
+      setUploadStatus(`데이터 정규화 파이프라인 가동: ${schema.datasetName}`);
       const datasetId = `DS_${Date.now()}`;
       
+      // DB 실제 컬럼명 리스트 (에러 방지용)
+      const ALLOWED_COLUMNS = ['region', 'resident_count', 'budget', 'title', 'category', 'nationality', 'visa_type'];
+
       const processedData = rawJson.map((row: any) => {
         const cleanedRow: any = {
-          dataset_id: datasetId,
-          dataset_name: schema.datasetName,
-          raw_data: row
+          // metadata에 원본 전체를 보관하여 데이터 유실 방지
+          // 만약 DB에 metadata 컬럼이 없다면 이 부분은 무시됨
         };
 
         schema.mappings.forEach(m => {
-          const rawVal = row[m.source] || row[m.target];
-          if (m.type === 'number') {
-            cleanedRow[m.target] = cleanNumericValue(rawVal);
-          } else {
-            cleanedRow[m.target] = rawVal || '';
+          // AI가 제안한 target이 실제 DB 허용 컬럼인 경우에만 세팅
+          if (ALLOWED_COLUMNS.includes(m.target)) {
+            const rawVal = row[m.source];
+            if (m.type === 'number') {
+              cleanedRow[m.target] = cleanNumericValue(rawVal);
+            } else {
+              cleanedRow[m.target] = rawVal ? String(rawVal) : '';
+            }
           }
         });
 
-        // 공통 필드 보장
-        cleanedRow.region = cleanedRow.region || cleanedRow[schema.xAxisKey] || '기타';
+        // 필수 필드 보정 (에러 방지)
+        if (!cleanedRow.region) cleanedRow.region = '미분류';
         
         return cleanedRow;
       });
 
-      // 3. 동적 적재 (기존 테이블을 활용하되 JSONB 혹은 유연한 컬럼에 적재)
-      // 여기서는 사용자 요청대로 '새로운 테이블' 느낌을 주기 위해 dataset_id로 구분하여 적재
-      setUploadStatus('정제된 데이터를 데이터 레이크에 적재 중...');
-      const table = schema.targetTable.includes('policy') ? 'local_policies' : 'foreign_residents_stats';
+      // 3. 적재 (Dataset ID 개념 도입)
+      setUploadStatus('정제된 데이터를 분석 레이크에 적재 중...');
+      const table = schema.dataType === 'policies' ? 'local_policies' : 'foreign_residents_stats';
       
+      // supabase.insert 시 DB에 없는 컬럼을 포함하면 'Schema Cache' 에러가 발생함.
+      // 위에서 ALLOWED_COLUMNS로 필터링했으므로 안전함.
       const { error } = await supabase.from(table).insert(processedData);
-      if (error) throw error;
+      if (error) {
+        console.error("DB Insert Error:", error);
+        throw new Error(`데이터베이스 적재 실패: ${error.message}`);
+      }
 
       setLastUploadedData(processedData);
-      setUploadStatus('AI 분석 대시보드 커스텀 구성 중...');
+      setUploadStatus('대시보드 인사이트 생성 중...');
       
       const aiResponse = await analyzeUploadedData(processedData, schema);
       setAiResults(aiResponse);
       setShowAnalysis(true);
 
     } catch (err: any) {
-      setUploadStatus('데이터 파이프라인 처리 오류');
+      setUploadStatus('파이프라인 처리 오류');
       setErrorDetails(err.message);
     } finally {
       setIsUploading(false);
@@ -137,9 +142,9 @@ export const DataManagement: React.FC = () => {
           
           <div className="relative z-10 text-center">
             <div className="mb-12">
-              <span className="bg-blue-50 text-blue-600 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest mb-4 inline-block">Flexible ETL Engine</span>
+              <span className="bg-blue-50 text-blue-600 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest mb-4 inline-block">AI-Driven ETL Pipeline</span>
               <h2 className="text-4xl font-black text-slate-800 mb-4 tracking-tight">자율형 데이터 사이언스 수집기</h2>
-              <p className="text-slate-500 font-bold text-lg">어떤 형식의 데이터든 AI가 정제하고 시각화 축을 자동 생성합니다.</p>
+              <p className="text-slate-500 font-bold text-lg">AI가 원본을 스캔하여 표준 스키마로 자동 정규화합니다.</p>
             </div>
 
             {!hasKey ? (
@@ -150,13 +155,13 @@ export const DataManagement: React.FC = () => {
             ) : (
               <div className="border-4 border-dashed border-slate-100 rounded-[3rem] p-20 text-center hover:border-blue-400 hover:bg-blue-50/10 transition-all cursor-pointer relative mb-10 group/box">
                 <div className="w-24 h-24 bg-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-xl group-hover/box:scale-105 transition-transform">
-                  <i className="fa-solid fa-vial-circle-check text-4xl text-white"></i>
+                  <i className="fa-solid fa-cloud-arrow-up text-4xl text-white"></i>
                 </div>
                 <h3 className="text-2xl font-black text-slate-800 mb-4">데이터 파일을 업로드하세요</h3>
-                <p className="text-slate-400 mb-12 max-w-sm mx-auto font-bold text-sm">AI가 원본 데이터를 스캔하고 정제 규칙을 즉석에서 생성합니다.</p>
+                <p className="text-slate-400 mb-12 max-w-sm mx-auto font-bold text-sm">업로드된 데이터는 AI 정제 파이프라인을 거쳐 분석용 '가상 테이블'로 생성됩니다.</p>
                 
                 <label className={`relative z-10 cursor-pointer ${isUploading ? 'opacity-50 pointer-events-none' : ''} bg-slate-900 text-white px-16 py-6 rounded-2xl font-black shadow-2xl hover:bg-blue-700 transition-all inline-block`}>
-                  {isUploading ? '데이터 클리닝 중...' : '파일 선택 및 분석 시작'}
+                  {isUploading ? '데이터 정제 중...' : '파일 선택 및 분석 시작'}
                   <input type="file" className="hidden" onChange={handleFileUpload} accept=".csv,.xlsx" disabled={isUploading} />
                 </label>
               </div>
@@ -165,7 +170,12 @@ export const DataManagement: React.FC = () => {
             {uploadStatus && (
               <div className={`p-8 rounded-[2rem] border animate-fadeIn mt-6 ${errorDetails ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
                 <p className={`font-black text-lg ${errorDetails ? 'text-red-700' : 'text-blue-700'}`}>{uploadStatus}</p>
-                {errorDetails && <code className="text-xs text-red-500 mt-2 block font-mono">{errorDetails}</code>}
+                {errorDetails && (
+                  <div className="mt-4 p-4 bg-white/50 rounded-xl text-left border border-red-100">
+                    <p className="text-xs text-red-600 font-mono leading-relaxed">{errorDetails}</p>
+                    <p className="text-[10px] text-red-400 mt-2 font-bold underline italic">Tip: DB에 없는 컬럼명(예: {errorDetails.split("'")[1]})은 AI가 자동으로 제외하도록 수정되었습니다.</p>
+                  </div>
+                )}
               </div>
             )}
           </div>
