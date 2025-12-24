@@ -19,8 +19,8 @@ const getAI = () => {
 
 export interface SchemaMapping {
   datasetName: string;
-  tableName: string; // 새로 생성될 물리 테이블 이름
-  sqlColumns: string; // CREATE TABLE에 들어갈 컬럼 정의 SQL
+  tableName: string;
+  sqlColumns: string;
   mappings: { 
     source: string; 
     target: string; 
@@ -51,54 +51,86 @@ export interface DetailedAnalysis {
   riskFactor: string;
 }
 
+export interface AnalysisResult {
+  insights: AIInsight[];
+  recommendations: AIRecommendation[];
+}
+
 /**
- * AI 기반 동적 테이블 스키마 생성 엔진
+ * 1. AI 기반 동적 테이블 스키마 생성 엔진
+ */
+export const identifyAndCreateDynamicSchema = async (sampleData: any[]): Promise<SchemaMapping> => {
+  const ai = getAI();
+  const sample = JSON.stringify(sampleData.slice(0, 10));
+  
+  const prompt = `
+    당신은 10년차 시니어 데이터 엔지니어입니다. 
+    다음 엑셀 데이터를 분석하여 새로운 PostgreSQL 테이블을 생성하기 위한 스키마를 설계하세요.
+    데이터 샘플: ${sample}
+    
+    [요구사항]
+    1. 영문 테이블 이름을 정하세요 (소문자/언더바).
+    2. 모든 데이터 필드를 분석하여 최적의 컬럼명과 타입을 정하세요.
+    3. sqlColumns에 "column_name TYPE" 목록을 작성하세요.
+    4. id(primary key)와 created_at(timestamp) 컬럼을 반드시 포함하세요.
+  `;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          datasetName: { type: Type.STRING },
+          tableName: { type: Type.STRING },
+          sqlColumns: { type: Type.STRING },
+          mappings: { 
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                source: { type: Type.STRING },
+                target: { type: Type.STRING },
+                type: { type: Type.STRING, enum: ['string', 'number'] }
+              },
+              required: ["source", "target", "type"]
+            }
+          },
+          xAxisLabel: { type: Type.STRING },
+          yAxisLabel: { type: Type.STRING },
+          unit: { type: Type.STRING }
+        },
+        required: ["datasetName", "tableName", "sqlColumns", "mappings", "xAxisLabel", "yAxisLabel", "unit"]
+      }
+    }
+  });
+  return JSON.parse(response.text || "{}");
+};
+
+/**
+ * 2. 업로드된 데이터에 대한 인사이트 분석
  */
 export const analyzeUploadedData = async (data: any[], schema: SchemaMapping): Promise<AnalysisResult | null> => {
   const ai = getAI();
-  const dataSummary = data.slice(0, 30).map(d => JSON.stringify(d)).join("\n");
+  const dataSummary = data.slice(0, 20).map(d => JSON.stringify(d)).join("\n");
   
-  // 프롬프트: 분석 + 시각화 데이터 생성 요청
   const prompt = `
-    ${ANALYST_PERSONA}
-
-    [Task]
-    Analyze the data and provide:
-    1. Key Insights & Recommendations (Korean)
-    2. **Visualization Configuration** (JSON for Recharts)
-
-    [Context]
-    - Table: ${schema.tableName}
-    - Title: ${schema.datasetName}
-    - Data Summary: 
-    ${dataSummary}
-
-    [Visualization Instructions]
-    - Analyze the data patterns and select the **best chart type** (Bar, Line, Pie, or Area).
-    - **Trend/Time-series** -> Line or Area chart.
-    - **Comparison** -> Bar chart.
-    - **Distribution** -> Pie chart.
-    - Provide 'data' array optimized for the chart.
-    - 'xAxisKey' should be the category column (e.g., date, region).
-    - 'seriesKeys' should be the numeric value columns to display.
-    - **Chart Title MUST be in Korean.**
-
-    [Language]
-    - Insights/Recommendations: **KOREAN**
-    - Chart Title/Series Names: **KOREAN**
-    - Keys/Types: English (for code compatibility)
+    데이터셋: ${schema.datasetName}
+    데이터 요약: ${dataSummary}
+    전문 분석가로서 3가지 핵심 인사이트와 3가지 비즈니스 추천 시나리오를 생성하세요.
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            // 1. 기존 인사이트 영역
             insights: {
               type: Type.ARRAY,
               items: {
@@ -111,7 +143,6 @@ export const analyzeUploadedData = async (data: any[], schema: SchemaMapping): P
                 required: ["title", "content", "type"]
               }
             },
-            // 2. 기존 추천 영역
             recommendations: {
               type: Type.ARRAY,
               items: {
@@ -124,43 +155,50 @@ export const analyzeUploadedData = async (data: any[], schema: SchemaMapping): P
                 },
                 required: ["id", "title", "description", "icon"]
               }
-            },
-            // 3. ★ 시각화 설정 영역 (Chart.js / Recharts 호환)
-            recommendedChart: {
-              type: Type.OBJECT,
-              properties: {
-                type: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'area'], description: "Best chart type" },
-                title: { type: Type.STRING, description: "Chart title in Korean" },
-                xAxisKey: { type: Type.STRING, description: "Key name for X-axis (e.g., 'month')" },
-                seriesKeys: { 
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      key: { type: Type.STRING, description: "Key name for data value" },
-                      name: { type: Type.STRING, description: "Legend name in Korean" },
-                      color: { type: Type.STRING, description: "Hex color code (e.g. #8884d8)" }
-                    },
-                    required: ["key", "name", "color"]
-                  }
-                },
-                data: {
-                  type: Type.ARRAY,
-                  description: "Simplified data array for the chart",
-                  items: { type: Type.OBJECT } // 유연한 객체 허용
-                }
-              },
-              required: ["type", "title", "data", "xAxisKey", "seriesKeys"]
             }
           },
-          required: ["insights", "recommendations", "recommendedChart"]
+          required: ["insights", "recommendations"]
         }
       }
     });
 
     return JSON.parse(response.text || "{}");
-  } catch (error: any) {
+  } catch (error) {
     console.error("분석 실패:", error);
+    return null;
+  }
+};
+
+/**
+ * 3. 특정 시나리오에 대한 심층 분석 리포트 생성
+ */
+export const getDeepDiveAnalysis = async (data: any[], recTitle: string, schema: SchemaMapping): Promise<DetailedAnalysis | null> => {
+  const ai = getAI();
+  const dataSummary = data.slice(0, 15).map(d => JSON.stringify(d)).join("\n");
+
+  const prompt = `분석 주제: "${recTitle}"\n데이터셋: ${schema.datasetName}\n샘플: ${dataSummary}\n전문적인 전략 리포트를 작성하세요.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            reportTitle: { type: Type.STRING },
+            summary: { type: Type.STRING },
+            strategicSuggestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+            riskFactor: { type: Type.STRING }
+          },
+          required: ["reportTitle", "summary", "strategicSuggestions", "riskFactor"]
+        }
+      }
+    });
+    return JSON.parse(response.text || "{}");
+  } catch (error) {
+    console.error("심층 분석 실패:", error);
     return null;
   }
 };
