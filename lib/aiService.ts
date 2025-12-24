@@ -19,11 +19,10 @@ const getAI = () => {
 
 export interface SchemaMapping {
   datasetName: string;
-  dataType: 'residents' | 'policies' | 'general';
-  // 물리 DB 컬럼에 맞춘 표준 매핑
+  dataType: 'residents' | 'policies';
   mappings: { 
     source: string; 
-    target: 'region' | 'resident_count' | 'budget' | 'title' | 'category' | 'nationality' | 'visa_type'; 
+    target: string; 
     type: 'string' | 'number'
   }[];
   xAxisLabel: string;
@@ -64,18 +63,15 @@ export const identifyAndCleanSchema = async (sampleData: any[]): Promise<SchemaM
     
     데이터 샘플: ${sample}
     
-    [중요] 반드시 다음 허용된 target 필드 중 하나로만 매핑하세요:
-    - 'region': 지역명, 국가명, 장소 등 (X축 후보)
-    - 'resident_count': 인원수, 수량, 횟수 등 (수치)
-    - 'budget': 금액, 예산, 비용 등 (수치)
-    - 'title': 제목, 사업명, 항목명 등
-    - 'category': 분류, 유형 등
-    - 'nationality': 국적
-    - 'visa_type': 비자유형
+    [규칙]
+    1. 데이터가 '인구수/국적/현황' 관련이면 dataType을 'residents'로, '사업/예산/지원정책' 관련이면 'policies'로 설정하세요.
+    2. dataType이 'residents'일 때 허용된 target 필드: ['region', 'resident_count', 'nationality', 'visa_type']
+    3. dataType이 'policies'일 때 허용된 target 필드: ['region', 'title', 'category', 'budget']
+    4. 'region'은 반드시 포함되어야 하며, 데이터의 지리적 위치(시도, 시군구 등)를 나타냅니다.
     
     요구사항:
-    1. 이 데이터셋의 성격을 가장 잘 나타내는 datasetName을 정하세요.
-    2. 시각화 시 X축과 Y축으로 쓸 가장 적합한 라벨(xAxisLabel, yAxisLabel)을 정하세요.
+    - 이 데이터셋의 성격을 나타내는 datasetName을 정하세요.
+    - 시각화 시 X축과 Y축으로 쓸 가장 적합한 라벨(xAxisLabel, yAxisLabel)을 정하세요.
   `;
 
   try {
@@ -88,14 +84,14 @@ export const identifyAndCleanSchema = async (sampleData: any[]): Promise<SchemaM
           type: Type.OBJECT,
           properties: {
             datasetName: { type: Type.STRING },
-            dataType: { type: Type.STRING, enum: ['residents', 'policies', 'general'] },
+            dataType: { type: Type.STRING, enum: ['residents', 'policies'] },
             mappings: { 
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 properties: {
                   source: { type: Type.STRING },
-                  target: { type: Type.STRING, enum: ['region', 'resident_count', 'budget', 'title', 'category', 'nationality', 'visa_type'] },
+                  target: { type: Type.STRING },
                   type: { type: Type.STRING, enum: ['string', 'number'] }
                 },
                 required: ["source", "target", "type"]
