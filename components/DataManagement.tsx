@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase.ts';
 import * as XLSX from 'xlsx';
-import { identifyDataStructure, analyzeUploadedData, AIInsight, AIRecommendation, SchemaMapping } from '../lib/aiService.ts';
+import { identifyAndCleanSchema, analyzeUploadedData, AIInsight, AIRecommendation, SchemaMapping } from '../lib/aiService.ts';
 import { PostUploadAnalysis } from './PostUploadAnalysis.tsx';
 
 export const DataManagement: React.FC = () => {
@@ -19,28 +19,35 @@ export const DataManagement: React.FC = () => {
   const checkKeyStatus = async () => {
     try {
       const manualKey = localStorage.getItem('GEMINI_API_KEY');
-      if (manualKey && manualKey.length > 20) {
-        setHasKey(true);
-        return;
-      }
+      if (manualKey) { setHasKey(true); return; }
       const aistudio = (window as any).aistudio;
       if (aistudio && typeof aistudio.hasSelectedApiKey === 'function') {
         const selected = await aistudio.hasSelectedApiKey();
         setHasKey(selected);
         return;
       }
-      const envKey = (process as any).env.API_KEY;
-      setHasKey(!!envKey && envKey !== "undefined" && envKey !== "");
-    } catch (e) {
-      setHasKey(false);
-    }
+      setHasKey(!!(process as any).env.API_KEY);
+    } catch (e) { setHasKey(false); }
   };
 
   useEffect(() => {
     checkKeyStatus();
-    const interval = setInterval(checkKeyStatus, 1500);
+    const interval = setInterval(checkKeyStatus, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  // 수치 데이터 정제 헬퍼 (데이터 엔지니어링의 핵심)
+  const cleanNumericValue = (val: any): number => {
+    if (val === null || val === undefined) return 0;
+    const str = String(val).replace(/,/g, '');
+    const num = parseFloat(str.replace(/[^0-9.-]/g, ''));
+    
+    // 단위 보정 (억, 만 등)
+    if (str.includes('억')) return (parseFloat(str) || 0) * 100000000;
+    if (str.includes('만') && !str.includes('백만')) return (parseFloat(str) || 0) * 10000;
+    
+    return isNaN(num) ? 0 : num;
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -49,7 +56,7 @@ export const DataManagement: React.FC = () => {
     setErrorDetails(null);
     try {
       setIsUploading(true);
-      setUploadStatus('시니어 데이터 엔진 가동 중...');
+      setUploadStatus('AI 데이터 클리닝 엔진 가동 중...');
 
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer);
@@ -58,59 +65,55 @@ export const DataManagement: React.FC = () => {
 
       if (rawJson.length === 0) throw new Error("파일에 데이터가 없습니다.");
 
-      setUploadStatus('AI가 데이터 스키마를 자율 매핑 중입니다...');
-      const schema = await identifyDataStructure(rawJson);
+      // 1. AI에게 가상 스키마 및 정제 규칙 요청
+      setUploadStatus('가상 스키마 및 매핑 규칙 생성 중...');
+      const schema = await identifyAndCleanSchema(rawJson);
       setCurrentSchema(schema);
       
-      setUploadStatus(`분석 결과: ${schema.targetTable === 'residents' ? '인구 통계' : '정책 예산'} 스키마 확정.`);
-
-      // 전처리 로직: 매핑 배열을 객체로 변환하여 처리
-      const columnMapObj = schema.mappings.reduce((acc, m) => {
-        acc[m.source] = m.target;
-        return acc;
-      }, {} as Record<string, string>);
-
-      const mappedData = rawJson.map((row: any) => {
-        const getVal = (dbKey: string) => {
-          const originalKey = Object.keys(columnMapObj).find(k => columnMapObj[k] === dbKey);
-          return row[originalKey || ''] || row[dbKey] || null;
-        };
-
-        const cleanObj: any = {
-          region: getVal('region') || '기타',
-          source_type: 'FILE',
+      // 2. 데이터 정제 파이프라인 가동
+      setUploadStatus(`데이터 정제 파이프라인 가동: ${schema.datasetName}`);
+      const datasetId = `DS_${Date.now()}`;
+      
+      const processedData = rawJson.map((row: any) => {
+        const cleanedRow: any = {
+          dataset_id: datasetId,
+          dataset_name: schema.datasetName,
           raw_data: row
         };
 
-        if (schema.targetTable === 'residents') {
-          cleanObj.resident_count = parseInt(String(getVal('resident_count') || '0').replace(/[^0-9]/g, '')) || 0;
-          cleanObj.nationality = getVal('nationality') || '미분류';
-          cleanObj.visa_type = getVal('visa_type') || '기타';
-        } else {
-          cleanObj.budget = parseInt(String(getVal('budget') || '0').replace(/[^0-9]/g, '')) || 0;
-          cleanObj.title = getVal('title') || '제목 없음';
-        }
-        return cleanObj;
+        schema.mappings.forEach(m => {
+          const rawVal = row[m.source] || row[m.target];
+          if (m.type === 'number') {
+            cleanedRow[m.target] = cleanNumericValue(rawVal);
+          } else {
+            cleanedRow[m.target] = rawVal || '';
+          }
+        });
+
+        // 공통 필드 보장
+        cleanedRow.region = cleanedRow.region || cleanedRow[schema.xAxisKey] || '기타';
+        
+        return cleanedRow;
       });
 
-      const table = schema.targetTable === 'residents' ? 'foreign_residents_stats' : 'local_policies';
+      // 3. 동적 적재 (기존 테이블을 활용하되 JSONB 혹은 유연한 컬럼에 적재)
+      // 여기서는 사용자 요청대로 '새로운 테이블' 느낌을 주기 위해 dataset_id로 구분하여 적재
+      setUploadStatus('정제된 데이터를 데이터 레이크에 적재 중...');
+      const table = schema.targetTable.includes('policy') ? 'local_policies' : 'foreign_residents_stats';
       
-      setUploadStatus(`데이터 레이크에 최적화 적재 중...`);
-      const { error } = await supabase.from(table).insert(mappedData);
-      
+      const { error } = await supabase.from(table).insert(processedData);
       if (error) throw error;
 
-      setLastUploadedData(mappedData);
-      setUploadStatus('AI가 맞춤형 분석 대시보드를 구축하고 있습니다...');
+      setLastUploadedData(processedData);
+      setUploadStatus('AI 분석 대시보드 커스텀 구성 중...');
       
-      const aiResponse = await analyzeUploadedData(mappedData, schema.targetTable);
+      const aiResponse = await analyzeUploadedData(processedData, schema);
       setAiResults(aiResponse);
-      setShowAnalysis(true); // 즉시 분석 창 표시
+      setShowAnalysis(true);
 
     } catch (err: any) {
-      setUploadStatus('시스템 오류가 발생했습니다.');
-      setErrorDetails(err.message || '알 수 없는 오류');
-      console.error(err);
+      setUploadStatus('데이터 파이프라인 처리 오류');
+      setErrorDetails(err.message);
     } finally {
       setIsUploading(false);
       if (e.target) e.target.value = '';
@@ -119,10 +122,10 @@ export const DataManagement: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto space-y-10 animate-fadeIn">
-      {showAnalysis && aiResults && (
+      {showAnalysis && aiResults && currentSchema && (
         <PostUploadAnalysis 
           data={lastUploadedData} 
-          type={currentSchema?.targetTable || 'residents'} 
+          schema={currentSchema}
           aiResults={aiResults} 
           onClose={() => setShowAnalysis(false)} 
         />
@@ -134,51 +137,35 @@ export const DataManagement: React.FC = () => {
           
           <div className="relative z-10 text-center">
             <div className="mb-12">
-              <span className="bg-blue-50 text-blue-600 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest mb-4 inline-block">Enterprise Data Ingestion</span>
-              <h2 className="text-4xl font-black text-slate-800 mb-4 tracking-tight">자율형 정책 데이터 수집기</h2>
-              <p className="text-slate-500 font-bold text-lg">AI가 데이터의 맥락을 읽고 자동으로 전처리 및 시나리오를 구성합니다.</p>
+              <span className="bg-blue-50 text-blue-600 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest mb-4 inline-block">Flexible ETL Engine</span>
+              <h2 className="text-4xl font-black text-slate-800 mb-4 tracking-tight">자율형 데이터 사이언스 수집기</h2>
+              <p className="text-slate-500 font-bold text-lg">어떤 형식의 데이터든 AI가 정제하고 시각화 축을 자동 생성합니다.</p>
             </div>
 
             {!hasKey ? (
               <div className="bg-slate-50 border-4 border-dashed border-blue-200 rounded-[3rem] p-20 text-center">
-                <div className="w-24 h-24 bg-blue-100 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-inner">
-                  <i className="fa-solid fa-key text-4xl text-blue-600"></i>
-                </div>
-                <h3 className="text-2xl font-black text-slate-800 mb-4">분석 엔진이 비활성화 상태입니다</h3>
-                <p className="text-slate-500 mb-10 max-w-sm mx-auto font-medium leading-relaxed">상단 우측의 API 키 설정을 완료하면 시니어 데이터 엔지니어의 자율 분석 기능이 활성화됩니다.</p>
+                <i className="fa-solid fa-lock text-4xl text-blue-200 mb-6"></i>
+                <h3 className="text-xl font-black text-slate-800 mb-4">API 키가 필요합니다</h3>
               </div>
             ) : (
-              <div className="border-4 border-dashed border-slate-100 rounded-[3rem] p-20 text-center hover:border-blue-400 hover:bg-blue-50/10 transition-all cursor-pointer relative mb-10 overflow-hidden group/box">
-                <div className="w-28 h-28 bg-blue-600 rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 shadow-2xl shadow-blue-200 group-hover/box:scale-105 transition-transform duration-500">
-                  <i className="fa-solid fa-cloud-arrow-up text-5xl text-white"></i>
+              <div className="border-4 border-dashed border-slate-100 rounded-[3rem] p-20 text-center hover:border-blue-400 hover:bg-blue-50/10 transition-all cursor-pointer relative mb-10 group/box">
+                <div className="w-24 h-24 bg-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-xl group-hover/box:scale-105 transition-transform">
+                  <i className="fa-solid fa-vial-circle-check text-4xl text-white"></i>
                 </div>
-                <h3 className="text-2xl font-black text-slate-800 mb-4">분석할 엑셀/CSV 파일을 업로드하세요</h3>
-                <p className="text-slate-400 mb-12 max-w-sm mx-auto font-bold leading-relaxed">컬럼명이나 데이터 구조를 수정할 필요가 없습니다. AI가 알아서 매핑합니다.</p>
+                <h3 className="text-2xl font-black text-slate-800 mb-4">데이터 파일을 업로드하세요</h3>
+                <p className="text-slate-400 mb-12 max-w-sm mx-auto font-bold text-sm">AI가 원본 데이터를 스캔하고 정제 규칙을 즉석에서 생성합니다.</p>
                 
-                <label className={`relative z-10 cursor-pointer ${isUploading ? 'opacity-50 pointer-events-none' : ''} bg-slate-900 text-white px-16 py-6 rounded-2xl font-black shadow-2xl hover:bg-blue-700 transition-all inline-block active:scale-95`}>
-                  {isUploading ? (
-                    <span className="flex items-center">
-                      <i className="fa-solid fa-microchip fa-spin mr-3 text-blue-400"></i> 엔진 분석 중...
-                    </span>
-                  ) : '데이터 사이언스 엔진 시작'}
+                <label className={`relative z-10 cursor-pointer ${isUploading ? 'opacity-50 pointer-events-none' : ''} bg-slate-900 text-white px-16 py-6 rounded-2xl font-black shadow-2xl hover:bg-blue-700 transition-all inline-block`}>
+                  {isUploading ? '데이터 클리닝 중...' : '파일 선택 및 분석 시작'}
                   <input type="file" className="hidden" onChange={handleFileUpload} accept=".csv,.xlsx" disabled={isUploading} />
                 </label>
               </div>
             )}
 
             {uploadStatus && (
-              <div className={`p-8 rounded-[2rem] border animate-fadeIn mt-6 ${
-                errorDetails ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'
-              }`}>
-                <div className="flex items-center justify-center">
-                  <i className={`fa-solid ${errorDetails ? 'fa-triangle-exclamation text-red-500' : 'fa-wand-magic-sparkles text-blue-500 animate-pulse'} text-2xl mr-3`}></i>
-                  <p className={`font-black text-lg ${errorDetails ? 'text-red-700' : 'text-blue-700'}`}>{uploadStatus}</p>
-                </div>
-                {errorDetails && (
-                  <div className="mt-4 p-4 bg-white rounded-xl border border-red-100 text-left">
-                    <code className="text-xs text-red-500 block whitespace-pre-wrap font-mono">{errorDetails}</code>
-                  </div>
-                )}
+              <div className={`p-8 rounded-[2rem] border animate-fadeIn mt-6 ${errorDetails ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
+                <p className={`font-black text-lg ${errorDetails ? 'text-red-700' : 'text-blue-700'}`}>{uploadStatus}</p>
+                {errorDetails && <code className="text-xs text-red-500 mt-2 block font-mono">{errorDetails}</code>}
               </div>
             )}
           </div>
