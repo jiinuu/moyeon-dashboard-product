@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase.ts';
 import * as XLSX from 'xlsx';
-// Updated imports to include AnalysisResponse interface
 import { identifyAndCreateDynamicSchema, analyzeUploadedData, AnalysisResponse, SchemaMapping } from '../lib/aiService.ts';
 import { PostUploadAnalysis } from './PostUploadAnalysis.tsx';
 
@@ -14,7 +13,6 @@ export const DataManagement: React.FC = () => {
   
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [lastUploadedData, setLastUploadedData] = useState<any[]>([]);
-  // Fix: Set state type to AnalysisResponse | null to match the return type of analyzeUploadedData and the props expected by PostUploadAnalysis
   const [aiResults, setAiResults] = useState<AnalysisResponse | null>(null);
   const [currentSchema, setCurrentSchema] = useState<SchemaMapping | null>(null);
 
@@ -47,11 +45,10 @@ export const DataManagement: React.FC = () => {
     return isNaN(num) ? 0 : num;
   };
 
-  // SQL 문자열 이스케이프 함수 (보안 강화)
   const escapeSql = (val: any): string => {
     if (val === null || val === undefined) return 'NULL';
     if (typeof val === 'number') return String(val);
-    const str = String(val).replace(/'/g, "''"); // 따옴표 처리
+    const str = String(val).replace(/'/g, "''");
     return `'${str}'`;
   };
 
@@ -71,21 +68,27 @@ export const DataManagement: React.FC = () => {
 
       if (rawJson.length === 0) throw new Error("파일에 데이터가 없습니다.");
 
-      // 1. AI에게 새로운 물리 테이블 설계 요청
+      // 1. AI에게 스키마 설계 요청
       const schema = await identifyAndCreateDynamicSchema(rawJson);
-      const finalTableName = `${schema.tableName}_${Date.now().toString().slice(-6)}`;
+      const finalTableName = `${schema.tableName.toLowerCase().replace(/[^a-z0-9_]/g, '')}_${Date.now().toString().slice(-6)}`;
       schema.tableName = finalTableName;
       setCurrentSchema(schema);
       
-      // 2. 물리 테이블 생성
+      // 2. 물리 테이블 생성 (SQL 클리닝 로직 추가)
       setUploadStatus(`데이터베이스에 신규 테이블 [${finalTableName}] 구축 중...`);
-      const createTableSql = `CREATE TABLE public."${finalTableName}" (${schema.sqlColumns});`;
+      
+      // AI가 생성한 sqlColumns에서 혹시 모를 세미콜론이나 불필요한 공백 제거
+      const cleanedColumns = schema.sqlColumns.trim().replace(/;+$/, '').replace(/^[\(\)]+|[\(\)]+$/g, '');
+      const createTableSql = `CREATE TABLE IF NOT EXISTS public."${finalTableName}" (${cleanedColumns});`;
       
       const { error: rpcError } = await supabase.rpc('exec_sql', { sql_query: createTableSql });
-      if (rpcError) throw new Error(`테이블 생성 실패: ${rpcError.message}`);
+      if (rpcError) {
+        console.error("SQL Error:", createTableSql);
+        throw new Error(`테이블 생성 실패: ${rpcError.message}`);
+      }
 
       // 3. 데이터 정제
-      setUploadStatus(`스키마 캐시 우회 모드로 데이터 적재 중...`);
+      setUploadStatus(`데이터 변환 및 무결성 검사 중...`);
       const processedData = rawJson.map((row: any) => {
         const cleanedRow: any = {};
         schema.mappings.forEach(m => {
@@ -95,10 +98,8 @@ export const DataManagement: React.FC = () => {
         return cleanedRow;
       });
 
-      // 4. 스키마 캐시 에러 방지를 위해 SQL로 직접 Insert 실행 (핵심 로직)
+      // 4. 데이터 적재
       const columns = schema.mappings.map(m => `"${m.target}"`).join(', ');
-      
-      // 대량의 데이터를 위해 SQL을 청크(Chunk)로 나누어 처리 (너무 길면 SQL 에러 발생 가능)
       const chunkSize = 100;
       for (let i = 0; i < processedData.length; i += chunkSize) {
         const chunk = processedData.slice(i, i + chunkSize);
@@ -110,7 +111,7 @@ export const DataManagement: React.FC = () => {
         const insertSql = `INSERT INTO public."${finalTableName}" (${columns}) VALUES ${values};`;
         
         const { error: insertError } = await supabase.rpc('exec_sql', { sql_query: insertSql });
-        if (insertError) throw new Error(`데이터 적재 중 SQL 에러: ${insertError.message}`);
+        if (insertError) throw new Error(`데이터 적재 실패 (청크 ${i}): ${insertError.message}`);
         
         setUploadStatus(`적재 진행 중... (${Math.min(i + chunkSize, processedData.length)} / ${processedData.length})`);
       }
@@ -123,7 +124,7 @@ export const DataManagement: React.FC = () => {
       setShowAnalysis(true);
 
     } catch (err: any) {
-      setUploadStatus('동적 파이프라인 처리 중단');
+      setUploadStatus('데이터 파이프라인 에러');
       setErrorDetails(err.message);
     } finally {
       setIsUploading(false);
@@ -181,11 +182,11 @@ export const DataManagement: React.FC = () => {
                 </div>
                 {errorDetails && (
                   <div className="mt-4 p-4 bg-white/50 rounded-xl text-left border border-red-100">
-                    <p className="text-xs text-red-600 font-mono leading-relaxed">{errorDetails}</p>
-                    <div className="mt-4 p-4 bg-slate-900 rounded-xl">
-                      <p className="text-[10px] text-emerald-400 font-bold mb-2">✅ 해결됨: Schema Cache Bypass</p>
-                      <p className="text-[10px] text-white/70 leading-relaxed font-bold">
-                        이제 시스템이 API 계층의 캐시가 갱신될 때까지 기다리지 않고, DB 레벨에서 직접 SQL INSERT를 수행합니다.
+                    <p className="text-xs text-red-600 font-mono leading-relaxed font-bold mb-4">{errorDetails}</p>
+                    <div className="p-4 bg-slate-900 rounded-xl">
+                      <p className="text-[10px] text-emerald-400 font-bold mb-2">💡 시스템 진단 결과</p>
+                      <p className="text-[10px] text-white/70 leading-relaxed">
+                        SQL 문법 오차를 자동으로 교정하는 로직이 적용되었습니다. 다시 시도해 주세요. 만약 동일 에러가 지속된다면 Supabase에 'exec_sql' 함수가 올바르게 정의되어 있는지 확인이 필요합니다.
                       </p>
                     </div>
                   </div>

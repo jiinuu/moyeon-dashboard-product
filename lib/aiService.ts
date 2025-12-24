@@ -54,15 +54,19 @@ export const identifyAndCreateDynamicSchema = async (sampleData: any[]): Promise
   const sample = JSON.stringify(sampleData.slice(0, 5));
   
   const prompt = `
-    당신은 10년차 시니어 데이터 엔지니어입니다. 제공된 데이터 샘플을 바탕으로 DB 스키마를 설계하세요.
+    당신은 10년차 시니어 데이터 엔지니어입니다. 제공된 데이터 샘플을 바탕으로 PostgreSQL 테이블 스키마를 설계하세요.
     데이터 샘플: ${sample}
     
     [단계별 사고 과정]
     1. 데이터 성격 파악 (예산, 인구, 매출 등)
-    2. 데이터 타입 정의 (수치형 데이터는 반드시 NUMERIC 또는 INTEGER로 지정)
+    2. 데이터 타입 정의 (수치형 데이터는 NUMERIC, 문자열은 TEXT 사용)
     3. 영문 컬럼명 매핑 (공백 없는 소문자/언더바)
     
-    반환할 JSON에는 datasetName, tableName(영문), sqlColumns(SQL 정의), mappings(매핑 정보)가 포함되어야 합니다.
+    [중요: sqlColumns 작성 규칙]
+    - 반드시 "컬럼명 타입, 컬럼명 타입" 형식의 목록만 작성하세요.
+    - 예: "id SERIAL PRIMARY KEY, region TEXT, amount NUMERIC"
+    - **절대 세미콜론(;)이나 감싸는 괄호(())를 포함하지 마세요.**
+    - **마지막 컬럼 뒤에 쉼표(,)를 붙이지 마세요.**
   `;
 
   const response = await ai.models.generateContent({
