@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase.ts';
 import * as XLSX from 'xlsx';
-import { identifyAndCreateDynamicSchema, analyzeUploadedData, AIInsight, AIRecommendation, SchemaMapping } from '../lib/aiService.ts';
+// Updated imports to include AnalysisResponse interface
+import { identifyAndCreateDynamicSchema, analyzeUploadedData, AnalysisResponse, SchemaMapping } from '../lib/aiService.ts';
 import { PostUploadAnalysis } from './PostUploadAnalysis.tsx';
 
 export const DataManagement: React.FC = () => {
@@ -13,7 +14,8 @@ export const DataManagement: React.FC = () => {
   
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [lastUploadedData, setLastUploadedData] = useState<any[]>([]);
-  const [aiResults, setAiResults] = useState<{ insights: AIInsight[], recommendations: AIRecommendation[] } | null>(null);
+  // Fix: Set state type to AnalysisResponse | null to match the return type of analyzeUploadedData and the props expected by PostUploadAnalysis
+  const [aiResults, setAiResults] = useState<AnalysisResponse | null>(null);
   const [currentSchema, setCurrentSchema] = useState<SchemaMapping | null>(null);
 
   const checkKeyStatus = async () => {

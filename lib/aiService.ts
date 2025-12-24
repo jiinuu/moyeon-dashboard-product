@@ -11,9 +11,7 @@ const getApiKey = (): string | null => {
 
 const getAI = () => {
   const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error("API Key가 설정되지 않았습니다. 상단 'API 키 설정' 버튼을 눌러주세요.");
-  }
+  if (!apiKey) throw new Error("API Key가 설정되지 않았습니다.");
   return new GoogleGenAI({ apiKey });
 };
 
@@ -21,14 +19,15 @@ export interface SchemaMapping {
   datasetName: string;
   tableName: string;
   sqlColumns: string;
-  mappings: { 
-    source: string; 
-    target: string; 
-    type: 'string' | 'number'
-  }[];
-  xAxisLabel: string;
-  yAxisLabel: string;
-  unit: string;
+  mappings: { source: string; target: string; type: 'string' | 'number' }[];
+}
+
+export interface ChartConfig {
+  type: 'bar' | 'line' | 'area' | 'pie';
+  title: string;
+  xAxisKey: string;
+  yAxisKey: string;
+  color: string;
 }
 
 export interface AIInsight {
@@ -41,38 +40,29 @@ export interface AIRecommendation {
   id: string;
   title: string;
   description: string;
-  icon: string;
 }
 
-export interface DetailedAnalysis {
-  reportTitle: string;
+export interface AnalysisResponse {
   summary: string;
-  strategicSuggestions: string[];
-  riskFactor: string;
-}
-
-export interface AnalysisResult {
+  charts: ChartConfig[];
   insights: AIInsight[];
   recommendations: AIRecommendation[];
 }
 
-/**
- * 1. AI 기반 동적 테이블 스키마 생성 엔진
- */
 export const identifyAndCreateDynamicSchema = async (sampleData: any[]): Promise<SchemaMapping> => {
   const ai = getAI();
-  const sample = JSON.stringify(sampleData.slice(0, 10));
+  const sample = JSON.stringify(sampleData.slice(0, 5));
   
   const prompt = `
-    당신은 10년차 시니어 데이터 엔지니어입니다. 
-    다음 엑셀 데이터를 분석하여 새로운 PostgreSQL 테이블을 생성하기 위한 스키마를 설계하세요.
+    당신은 10년차 시니어 데이터 엔지니어입니다. 제공된 데이터 샘플을 바탕으로 DB 스키마를 설계하세요.
     데이터 샘플: ${sample}
     
-    [요구사항]
-    1. 영문 테이블 이름을 정하세요 (소문자/언더바).
-    2. 모든 데이터 필드를 분석하여 최적의 컬럼명과 타입을 정하세요.
-    3. sqlColumns에 "column_name TYPE" 목록을 작성하세요.
-    4. id(primary key)와 created_at(timestamp) 컬럼을 반드시 포함하세요.
+    [단계별 사고 과정]
+    1. 데이터 성격 파악 (예산, 인구, 매출 등)
+    2. 데이터 타입 정의 (수치형 데이터는 반드시 NUMERIC 또는 INTEGER로 지정)
+    3. 영문 컬럼명 매핑 (공백 없는 소문자/언더바)
+    
+    반환할 JSON에는 datasetName, tableName(영문), sqlColumns(SQL 정의), mappings(매핑 정보)가 포함되어야 합니다.
   `;
 
   const response = await ai.models.generateContent({
@@ -86,7 +76,7 @@ export const identifyAndCreateDynamicSchema = async (sampleData: any[]): Promise
           datasetName: { type: Type.STRING },
           tableName: { type: Type.STRING },
           sqlColumns: { type: Type.STRING },
-          mappings: { 
+          mappings: {
             type: Type.ARRAY,
             items: {
               type: Type.OBJECT,
@@ -97,29 +87,35 @@ export const identifyAndCreateDynamicSchema = async (sampleData: any[]): Promise
               },
               required: ["source", "target", "type"]
             }
-          },
-          xAxisLabel: { type: Type.STRING },
-          yAxisLabel: { type: Type.STRING },
-          unit: { type: Type.STRING }
+          }
         },
-        required: ["datasetName", "tableName", "sqlColumns", "mappings", "xAxisLabel", "yAxisLabel", "unit"]
+        required: ["datasetName", "tableName", "sqlColumns", "mappings"]
       }
     }
   });
   return JSON.parse(response.text || "{}");
 };
 
-/**
- * 2. 업로드된 데이터에 대한 인사이트 분석
- */
-export const analyzeUploadedData = async (data: any[], schema: SchemaMapping): Promise<AnalysisResult | null> => {
+export const analyzeUploadedData = async (data: any[], schema: SchemaMapping): Promise<AnalysisResponse | null> => {
   const ai = getAI();
-  const dataSummary = data.slice(0, 20).map(d => JSON.stringify(d)).join("\n");
+  const dataSummary = JSON.stringify(data.slice(0, 30));
   
   const prompt = `
-    데이터셋: ${schema.datasetName}
-    데이터 요약: ${dataSummary}
-    전문 분석가로서 3가지 핵심 인사이트와 3가지 비즈니스 추천 시나리오를 생성하세요.
+    [시스템 역할] 전문 데이터 분석가 및 전략 컨설턴트
+    [데이터셋 정보] 제목: ${schema.datasetName}, 테이블명: ${schema.tableName}
+    [데이터 샘플] ${dataSummary}
+
+    [분석 가이드라인 (Thought Trace)]
+    1. **Investigating**: 데이터의 핵심 변수와 측정 단위를 파악하십시오.
+    2. **Planning**: 데이터에서 유의미한 상관관계나 트렌드를 찾기 위한 분석 전략을 세우십시오.
+    3. **Exploring**: 지역별/카테고리별 차이, 전년 대비 변화, 이상치 등을 탐색하십시오.
+    4. **Summarizing**: 발견된 사실을 바탕으로 비즈니스 인사이트와 시각화 방향을 결정하십시오.
+
+    [시각화 규칙]
+    - 데이터의 성격에 맞는 차트 타입(bar, line, area, pie)을 선택하십시오.
+    - xAxisKey와 yAxisKey는 반드시 제공된 매핑 테이블의 'target' 컬럼명 중 하나여야 합니다.
+
+    [출력 언어] 반드시 한국어로 답변하십시오.
   `;
 
   try {
@@ -131,6 +127,21 @@ export const analyzeUploadedData = async (data: any[], schema: SchemaMapping): P
         responseSchema: {
           type: Type.OBJECT,
           properties: {
+            summary: { type: Type.STRING },
+            charts: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  type: { type: Type.STRING, enum: ['bar', 'line', 'area', 'pie'] },
+                  title: { type: Type.STRING },
+                  xAxisKey: { type: Type.STRING },
+                  yAxisKey: { type: Type.STRING },
+                  color: { type: Type.STRING }
+                },
+                required: ["type", "title", "xAxisKey", "yAxisKey", "color"]
+              }
+            },
             insights: {
               type: Type.ARRAY,
               items: {
@@ -150,55 +161,44 @@ export const analyzeUploadedData = async (data: any[], schema: SchemaMapping): P
                 properties: {
                   id: { type: Type.STRING },
                   title: { type: Type.STRING },
-                  description: { type: Type.STRING },
-                  icon: { type: Type.STRING }
+                  description: { type: Type.STRING }
                 },
-                required: ["id", "title", "description", "icon"]
+                required: ["id", "title", "description"]
               }
             }
           },
-          required: ["insights", "recommendations"]
+          required: ["summary", "charts", "insights", "recommendations"]
         }
       }
     });
 
     return JSON.parse(response.text || "{}");
   } catch (error) {
-    console.error("분석 실패:", error);
+    console.error("Analysis Error:", error);
     return null;
   }
 };
 
-/**
- * 3. 특정 시나리오에 대한 심층 분석 리포트 생성
- */
-export const getDeepDiveAnalysis = async (data: any[], recTitle: string, schema: SchemaMapping): Promise<DetailedAnalysis | null> => {
+export const getDeepDiveAnalysis = async (data: any[], recTitle: string, schema: SchemaMapping) => {
   const ai = getAI();
-  const dataSummary = data.slice(0, 15).map(d => JSON.stringify(d)).join("\n");
-
-  const prompt = `분석 주제: "${recTitle}"\n데이터셋: ${schema.datasetName}\n샘플: ${dataSummary}\n전문적인 전략 리포트를 작성하세요.`;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            reportTitle: { type: Type.STRING },
-            summary: { type: Type.STRING },
-            strategicSuggestions: { type: Type.ARRAY, items: { type: Type.STRING } },
-            riskFactor: { type: Type.STRING }
-          },
-          required: ["reportTitle", "summary", "strategicSuggestions", "riskFactor"]
-        }
+  const prompt = `주제: ${recTitle}\n데이터: ${JSON.stringify(data.slice(0, 15))}\n위 주제에 대한 심층 전략 리포트를 작성하세요.`;
+  
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          reportTitle: { type: Type.STRING },
+          summary: { type: Type.STRING },
+          strategicSuggestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+          riskFactor: { type: Type.STRING }
+        },
+        required: ["reportTitle", "summary", "strategicSuggestions", "riskFactor"]
       }
-    });
-    return JSON.parse(response.text || "{}");
-  } catch (error) {
-    console.error("심층 분석 실패:", error);
-    return null;
-  }
+    }
+  });
+  return JSON.parse(response.text || "{}");
 };
